@@ -1,0 +1,1937 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Akhet - Portale Presenze</title>
+<script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.1/lib/msal-browser.min.js"></script>
+<style>
+/* Nascondi UI SharePoint - identico al GDL */
+#O365_NavHeader,#SuiteNavWrapper,#SuiteNavPlaceholder,
+#DeltaPlaceHolderMain > .ms-webpart-chrome,.sp-appBar,
+.ms-siteHeader-container,.od-TopBar,.Files-topBar,
+div[data-automationid="SiteHeader"],.sp-HubNav,
+#spPageChromeAppDiv,#spSiteHeader,.SPPageChrome,
+.od-ItemsScopeCommandBar,.ms-CommandBar,
+div[class*="commandBar"],div[class*="CommandBar"],
+button[data-automationid="splitbuttonprimary"],
+div[role="toolbar"]:not(.login-box):not(.container),
+.Files-commandBar,.od-Files-topBar { display:none !important; }
+#contentBox,.Canvas,.CanvasZone,#DeltaPlaceHolderMain { margin:0!important;padding:0!important; }
+body.ms-sp-chrome-sidebar { margin-left:0!important; }
+
+/* ===== BASE - identico al GDL ===== */
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial,sans-serif;background:linear-gradient(135deg,#667eea,#764ba2);padding:20px;min-height:100vh}
+.container{max-width:1200px;margin:0 auto;background:#fff;border-radius:15px;padding:30px;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+.login-box{max-width:400px;margin:50px auto;background:#fff;padding:40px;border-radius:15px;box-shadow:0 10px 30px rgba(0,0,0,0.3);text-align:center}
+.header{background:#3498db;color:#fff;padding:20px;border-radius:10px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap}
+h1{font-size:24px}
+h2{margin-bottom:20px}
+h3{margin-bottom:15px}
+.form-group{margin-bottom:15px}
+label{display:block;font-weight:600;margin-bottom:5px;text-align:left}
+input,select,textarea{width:100%;padding:10px;border:1px solid #ddd;border-radius:5px;font-size:14px}
+textarea{min-height:80px;font-family:inherit;resize:vertical}
+.btn{padding:10px 20px;border:none;border-radius:5px;cursor:pointer;font-size:14px;font-weight:600;margin:5px;transition:opacity 0.3s;display:inline-flex;align-items:center;gap:6px}
+.btn:hover{opacity:0.8}
+.btn:disabled{opacity:0.5;cursor:not-allowed}
+.btn-primary{background:#3498db;color:#fff}
+.btn-secondary{background:#95a5a6;color:#fff}
+.btn-success{background:#27ae60;color:#fff}
+.btn-danger{background:#e74c3c;color:#fff}
+.btn-warning{background:#f39c12;color:#fff}
+.small-btn{padding:6px 12px;font-size:12px}
+.section{display:none;padding:20px;background:#f9f9f9;border-radius:8px;margin:20px 0}
+.section.active{display:block}
+.nav{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+.nav button{padding:12px 20px;background:#ddd;border:none;border-radius:5px;cursor:pointer;font-weight:600;transition:all 0.3s}
+.nav button.active{background:#3498db;color:#fff}
+.nav button:hover{background:#bbb}
+.nav button.active:hover{background:#2980b9;opacity:1}
+.card{background:#fff;border:1px solid #ddd;padding:20px;margin:15px 0;border-radius:8px;transition:box-shadow 0.3s}
+.card:hover{box-shadow:0 4px 12px rgba(0,0,0,0.1)}
+.info{background:#e3f2fd;padding:15px;border-radius:8px;margin:15px 0}
+.loading{text-align:center;padding:40px;color:#666;font-size:18px}
+.loading:after{content:'...';animation:dots 1.5s steps(4,end) infinite}
+@keyframes dots{0%,20%{content:'.'}40%{content:'..'}60%,100%{content:'...'}}
+/* ---- GLOBAL LOADING SCREEN ---- */
+#loadingScreen{display:none;position:fixed;inset:0;background:#f0f4f8;z-index:99999;
+  flex-direction:column;align-items:center;justify-content:center;gap:20px;
+  font-family:'Segoe UI',sans-serif}
+#loadingScreen h2{font-size:22px;font-weight:700;color:#2c3e50;margin:0}
+#loadingScreen p{font-size:14px;color:#666;margin:0}
+.ls-spinner{width:52px;height:52px;border:5px solid #dde3ea;border-top-color:#3498db;
+  border-radius:50%;animation:lsSpin .85s linear infinite}
+@keyframes lsSpin{to{transform:rotate(360deg)}}
+.ls-track{width:280px;height:7px;background:#dde3ea;border-radius:10px;overflow:hidden}
+.ls-bar{height:100%;width:0%;background:linear-gradient(90deg,#3498db,#2ecc71);
+  border-radius:10px;transition:width .35s ease}
+.ls-step{font-size:12px;color:#aaa;min-height:16px}
+.error{background:#ffebee;color:#c62828;padding:15px;border-radius:8px;margin:15px 0;border-left:4px solid #c62828}
+.success{background:#e8f5e9;color:#2e7d32;padding:15px;border-radius:8px;margin:15px 0;border-left:4px solid #2e7d32}
+#userInfo{display:flex;align-items:center;gap:10px}
+.badge{background:#27ae60;color:#fff;padding:3px 10px;border-radius:10px;font-size:12px;margin-left:5px}
+.badge.warn{background:#f39c12}
+.badge.gray{background:#95a5a6}
+
+/* ===== STAT BOX ===== */
+.stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:15px;margin-bottom:20px}
+.stat-box{background:#fff;border:1px solid #ddd;border-radius:8px;padding:18px;text-align:center;border-top:3px solid #3498db}
+.stat-box.green{border-top-color:#27ae60}
+.stat-box.orange{border-top-color:#f39c12}
+.stat-box.red{border-top-color:#e74c3c}
+.stat-box.gray{border-top-color:#95a5a6}
+.stat-num{font-size:26px;font-weight:700;color:#2c3e50;font-family:'Courier New',monospace}
+.stat-lbl{font-size:12px;color:#666;margin-top:4px}
+.stat-sub{font-size:11px;color:#999;margin-top:2px}
+
+/* Progress bar */
+.progress-wrap{background:#ecf0f1;border-radius:20px;height:8px;overflow:hidden;margin:8px 0}
+.progress-bar{height:100%;border-radius:20px;transition:width .5s}
+.progress-bar.green{background:#27ae60}
+.progress-bar.orange{background:#f39c12}
+.progress-bar.red{background:#e74c3c}
+
+/* ===== TABELLA PRESENZE ===== */
+.pres-table{width:100%;border-collapse:collapse;font-size:14px}
+.pres-table th{background:#f8f9fa;padding:10px 12px;text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:#666;border-bottom:2px solid #ddd}
+.pres-table td{padding:10px 12px;border-bottom:1px solid #f0f0f0;vertical-align:middle}
+.pres-table tr:hover td{background:#f8f9fa}
+.pres-table tr:last-child td{border-bottom:none}
+
+/* Tipo presenza badge */
+.tipo-badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:600}
+.tipo-cantiere{background:#d5f5e3;color:#1e8449}
+.tipo-ufficio{background:#d6eaf8;color:#1a5276}
+.tipo-trasferta{background:#e8daef;color:#6c3483}
+.tipo-formazione{background:#d1f2eb;color:#148f77}
+.tipo-riunione{background:#eaeded;color:#566573}
+.tipo-amministrativa{background:#f2f3f4;color:#717d7e}
+.tipo-ferie{background:#fef9e7;color:#9a7d0a;border:1px solid #f0e68c}
+.tipo-malattia{background:#fadbd8;color:#922b21}
+.tipo-permesso{background:#fdebd0;color:#9c640c}
+
+/* Fonte indicatore */
+.fonte-gdl{font-size:11px;color:#e67e22;font-weight:600}
+.fonte-manuale{font-size:11px;color:#3498db;font-weight:600}
+
+/* ===== MODAL ===== */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.modal{background:#fff;border-radius:10px;width:100%;max-width:560px;max-height:92vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:mIn .2s ease}
+.modal.wide{max-width:680px}
+@keyframes mIn{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}
+.modal-header{background:#3498db;color:#fff;padding:15px 20px;border-radius:10px 10px 0 0;display:flex;align-items:center;justify-content:space-between}
+.modal-header h3{margin:0;font-size:16px}
+.modal-close{background:none;border:none;color:#fff;font-size:22px;cursor:pointer;line-height:1;padding:0 4px}
+.modal-close:hover{opacity:.7}
+.modal-body{padding:20px;overflow-y:auto;flex:1}
+.modal-footer{padding:12px 20px;border-top:1px solid #ddd;display:flex;justify-content:flex-end;gap:8px;background:#f8f9fa;border-radius:0 0 10px 10px}
+
+/* ===== CALENDAR ===== */
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-hdr{text-align:center;font-size:11px;font-weight:700;color:#666;padding:5px 0;text-transform:uppercase}
+.cal-day{
+  min-height:70px;border:1px solid #e0e0e0;border-radius:6px;padding:6px;
+  cursor:pointer;transition:all .2s;background:#fff;font-size:11px;
+}
+.cal-day:hover{border-color:#3498db;background:#eaf4fb}
+.cal-day.today{border-color:#3498db;border-width:2px}
+.cal-day.has-cant{background:#d5f5e3;border-color:#27ae60}
+.cal-day.has-uff{background:#d6eaf8;border-color:#3498db}
+.cal-day.has-ass{background:#fef9e7;border-color:#f39c12}
+.cal-day.missing{background:#fef0ef;border-color:#e74c3c}
+.cal-day.weekend{background:#fafafa;color:#999}
+.cal-day.empty{background:none;border:none;cursor:default}
+.cal-day-num{font-weight:700;font-size:13px;color:#2c3e50;margin-bottom:3px}
+.cal-day.weekend .cal-day-num{color:#aaa}
+.cal-day.today .cal-day-num{color:#3498db}
+.cal-chip{background:rgba(255,255,255,0.7);border-radius:3px;padding:1px 5px;margin-bottom:2px;font-size:10px;font-weight:600;border-left:3px solid currentColor;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* ===== RICERCA ===== */
+.search-group{display:flex;align-items:center;gap:8px;background:#f8f9fa;border:1px solid #ddd;border-radius:5px;padding:6px 12px;margin-bottom:15px}
+.search-group input{border:none;background:none;outline:none;font-size:14px;flex:1}
+
+/* ===== TEAM TABLE ===== */
+.team-grid{display:grid;grid-template-columns:2fr 1fr;gap:20px}
+
+/* ===== TOAST ===== */
+#toastC{position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;gap:8px}
+.toast{
+  display:flex;align-items:center;gap:10px;padding:12px 16px;
+  border-radius:8px;font-size:13px;font-weight:600;
+  min-width:260px;box-shadow:0 4px 20px rgba(0,0,0,0.15);
+  animation:tIn .25s ease;
+}
+.toast.ts{background:#d5f5e3;color:#1e8449;border-left:4px solid #27ae60}
+.toast.te{background:#fadbd8;color:#922b21;border-left:4px solid #e74c3c}
+.toast.ti{background:#d6eaf8;color:#1a5276;border-left:4px solid #3498db}
+@keyframes tIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+
+/* ===== COMMESSA SELECT ===== */
+.comm-box{border:1px solid #ddd;border-radius:5px;overflow:hidden}
+.comm-search{width:100%;padding:8px 10px;border:none;border-bottom:1px solid #ddd;font-size:14px;outline:none}
+.comm-search:focus{border-bottom-color:#3498db}
+.comm-list{max-height:180px;overflow-y:auto}
+.comm-item{padding:8px 12px;cursor:pointer;border-bottom:1px solid #f5f5f5;font-size:13px;transition:background .15s}
+.comm-item:last-child{border-bottom:none}
+.comm-item:hover{background:#eaf4fb}
+.comm-item.sel{background:#eaf4fb;border-left:3px solid #3498db}
+.comm-item .ci-code{font-weight:700;color:#2c3e50}
+.comm-item .ci-desc{color:#666;font-size:12px}
+
+/* ===== ORE STEPPER ===== */
+.ore-wrap{display:flex;align-items:center;gap:8px}
+.ore-btn{width:32px;height:36px;background:#ecf0f1;border:1px solid #ddd;border-radius:5px;font-size:18px;cursor:pointer;transition:all .2s;flex-shrink:0}
+.ore-btn:hover{background:#3498db;color:#fff;border-color:#3498db}
+.ore-input{text-align:center;font-size:18px;font-weight:700;width:80px!important}
+.ore-quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.ore-quick span{padding:3px 10px;border-radius:12px;background:#ecf0f1;border:1px solid #ddd;font-size:12px;cursor:pointer;transition:all .2s}
+.ore-quick span:hover,.ore-quick span.sel{background:#3498db;color:#fff;border-color:#3498db}
+
+/* Responsive */
+@media(max-width:768px){
+  .nav{flex-direction:column}
+  .header{flex-direction:column;align-items:flex-start;gap:10px}
+  .stat-row{grid-template-columns:repeat(2,1fr)}
+  .team-grid{grid-template-columns:1fr}
+  .pres-table{font-size:12px}
+  .pres-table th,.pres-table td{padding:7px 8px}
+}
+</style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginScreen" class="login-box">
+  <h2>⏱️ Akhet - Presenze</h2>
+  <p style="color:#666;margin-bottom:30px">Portale gestione presenze Akhet srl</p>
+  <button class="btn btn-primary" id="btnLogin" onclick="loginMicrosoft()" style="width:100%;font-size:16px;justify-content:center">
+    🔐 Accedi con Microsoft 365
+  </button>
+  <button class="btn btn-secondary" onclick="clearSession()" style="width:100%;font-size:14px;margin-top:5px;justify-content:center">
+    🔄 Cambia Account
+  </button>
+  <p style="margin-top:20px;font-size:12px;color:#999">Usa il tuo account aziendale Microsoft 365</p>
+  <div id="loginError" class="error" style="display:none;margin-top:20px"></div>
+</div>
+
+<!-- LOADING SCREEN -->
+<div id="loadingScreen">
+  <div class="ls-spinner"></div>
+  <div style="text-align:center">
+    <h2>⏱️ Akhet – Presenze</h2>
+    <p id="loadingMsg">Connessione a SharePoint…</p>
+  </div>
+  <div class="ls-track"><div class="ls-bar" id="loadingBar"></div></div>
+  <div class="ls-step" id="loadingStep"></div>
+</div>
+
+<!-- APP -->
+<div id="app" class="container" style="display:none">
+  <div class="header">
+    <h1>⏱️ Akhet - Portale Presenze</h1>
+    <div id="userInfo">
+      <span id="userName" style="color:#fff"></span>
+      <span id="userRoleBadge" class="badge">operator</span>
+      <button class="btn btn-secondary small-btn" onclick="logout()">Esci</button>
+    </div>
+  </div>
+
+  <!-- NAV -->
+  <div class="nav" id="mainNav">
+    <button id="nav-dashboard" class="active" onclick="showSection('dashboard')">📊 Dashboard</button>
+    <button id="nav-presenze"            onclick="showSection('presenze')">📋 Le mie presenze</button>
+    <button id="nav-calendario"          onclick="showSection('calendario')">📅 Calendario</button>
+    <button id="nav-team"   style="display:none" onclick="showSection('team')">👥 Team</button>
+    <button id="nav-commesse" style="display:none" onclick="showSection('commesse')">🏗️ Commesse</button>
+    <button id="nav-utenti"   style="display:none" onclick="showSection('utenti')">👤 Utenti</button>
+    <button id="nav-admin"    style="display:none" onclick="showSection('admin')">📊 Presenze totali</button>
+    <button id="nav-utenti"   style="display:none" onclick="showSection('utenti')">👤 Utenti</button>
+  </div>
+
+  <!-- Navigatore mese -->
+  <div id="meseNav" style="display:flex;align-items:center;gap:10px;margin-bottom:15px;flex-wrap:wrap">
+    <button class="btn btn-secondary small-btn" onclick="cambiaMe(-1)">◀ Prec</button>
+    <span id="meseLabel" style="font-weight:700;font-size:16px;color:#2c3e50;min-width:160px;text-align:center">—</span>
+    <button class="btn btn-secondary small-btn" onclick="cambiaMe(1)">Succ ▶</button>
+    <span id="msgGlobale" style="flex:1"></span>
+  </div>
+
+  <!-- ========== DASHBOARD ========== -->
+  <div id="sec-dashboard" class="section active">
+    <h3 id="dashGreet">Dashboard</h3>
+    <div class="stat-row" id="dashStats"></div>
+    <div class="progress-wrap"><div class="progress-bar" id="dashPb" style="width:0%"></div></div>
+    <p id="dashPbLabel" style="font-size:12px;color:#666;margin-bottom:20px"></p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div>
+        <h3>📅 Calendario rapido</h3>
+        <div id="dashCal"></div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:#666">
+          <span>🟢 Cantiere</span><span>🔵 Ufficio</span><span>🟡 Assenze</span><span>🔴 Mancante</span>
+        </div>
+      </div>
+      <div>
+        <h3>🕐 Ultime presenze</h3>
+        <div id="dashUltime"></div>
+        <button class="btn btn-primary small-btn" onclick="showSection('presenze')" style="margin-top:10px">Vedi tutte →</button>
+      </div>
+    </div>
+    <div style="text-align:right;margin-top:20px">
+      <button class="btn btn-success" onclick="apriModalPresenza()">➕ Inserisci presenza</button>
+    </div>
+  </div>
+
+  <!-- ========== PRESENZE ========== -->
+  <div id="sec-presenze" class="section">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:15px">
+      <h3 id="presTitolo" style="margin:0">📋 Le mie presenze</h3>
+      <button class="btn btn-success" onclick="apriModalPresenza()">➕ Inserisci presenza</button>
+    </div>
+    <div class="stat-row" id="presStats"></div>
+    <div class="search-group">
+      <span>🔍</span>
+      <input type="text" id="presSearch" placeholder="Cerca commessa, tipo, cantiere..." oninput="filtraPresenze()">
+      <span id="presCount" style="color:#666;font-size:12px"></span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="pres-table">
+        <thead>
+          <tr>
+            <th>Data</th><th>Commessa</th><th>Tipo</th>
+            <th>Dettaglio</th><th>Ore</th><th>Fonte</th><th>Azioni</th>
+          </tr>
+        </thead>
+        <tbody id="presTbody"></tbody>
+      </table>
+    </div>
+    <div id="presEmpty" class="info" style="display:none;text-align:center">
+      📋 Nessuna presenza registrata per questo periodo.<br>
+      <button class="btn btn-success small-btn" onclick="apriModalPresenza()" style="margin-top:10px">➕ Inserisci la prima presenza</button>
+    </div>
+  </div>
+
+  <!-- ========== CALENDARIO ========== -->
+  <div id="sec-calendario" class="section">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:15px">
+      <h3 style="margin:0">📅 Calendario presenze</h3>
+      <button class="btn btn-success" onclick="apriModalPresenza()">➕ Inserisci presenza</button>
+    </div>
+    <div id="calBody"></div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:14px;font-size:12px;color:#666">
+      <span>🟢 Cantiere</span><span>🔵 Ufficio/Altro</span><span>🟡 Ferie/Permessi</span>
+      <span>🔴 Giorno mancante</span><span>🔒 Proveniente dal GDL</span>
+    </div>
+  </div>
+
+  <!-- ========== TEAM ========== -->
+  <div id="sec-team" class="section">
+    <h3>👥 Controllo presenze team</h3>
+    <div class="team-grid">
+      <div>
+        <div style="overflow-x:auto">
+          <table class="pres-table">
+            <thead>
+              <tr><th>Dipendente</th><th>Cantiere</th><th>Ufficio</th><th>Assenze</th><th>Totale</th><th>Progresso</th><th></th></tr>
+            </thead>
+            <tbody id="teamTbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h3 style="margin-bottom:10px">📊 Ore per commessa</h3>
+        <div id="teamCommesse"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== COMMESSE ========== -->
+  <div id="sec-commesse" class="section">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:15px">
+      <h3 style="margin:0">🏗️ Commesse</h3>
+      <button class="btn btn-success" id="btnNuovaCommessa" style="display:none" onclick="commessaModale()">➕ Nuova commessa</button>
+    </div>
+    <div class="info" id="commInfo">
+      ℹ️ Le commesse con 🔗 sono sincronizzate dal GDL. Puoi aggiungere commesse extra (ufficio, amministrazione, ecc.) che non appaiono nel GDL.
+    </div>
+    <div class="search-group">
+      <span>🔍</span>
+      <input type="text" id="commSearch" placeholder="Cerca codice, descrizione, committente..." oninput="renderCommesse()">
+    </div>
+    <div style="overflow-x:auto">
+      <table class="pres-table">
+        <thead>
+          <tr><th>Codice</th><th>Descrizione</th><th>Committente</th><th>Tipo</th><th>Ore mese</th><th>Azioni</th></tr>
+        </thead>
+        <tbody id="commTbody"></tbody>
+      </table>
+    </div>
+    <div id="commEmpty" class="info" style="display:none;text-align:center">Nessuna commessa trovata.</div>
+  </div>
+
+  <!-- ========== UTENTI ========== -->
+  <div id="sec-utenti" class="section">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:15px">
+      <h3 style="margin:0">👤 Gestione Utenti</h3>
+      <button class="btn btn-success" onclick="utenteModale()">➕ Nuovo utente</button>
+    </div>
+    <div class="info">
+      ℹ️ Gli utenti con 🔗 sono sincronizzati dalla lista Utenti del GDL. Puoi aggiungere utenti extra che non sono nel GDL.
+    </div>
+    <div class="search-group">
+      <span>🔍</span>
+      <input type="text" id="utentiSearch" placeholder="Cerca nome, email, ruolo..." oninput="renderUtenti()">
+    </div>
+    <div style="overflow-x:auto">
+      <table class="pres-table">
+        <thead>
+          <tr><th>Nome</th><th>Email</th><th>Ruolo</th><th>Stato</th><th>Fonte</th><th>Azioni</th></tr>
+        </thead>
+        <tbody id="utentiTbody"></tbody>
+      </table>
+    </div>
+    <div id="utentiEmpty" class="info" style="display:none;text-align:center">Nessun utente trovato.</div>
+  </div>
+
+  <!-- ========== ADMIN ========== -->
+  <div id="sec-admin" class="section">
+    <h3>📊 Presenze totali</h3>
+
+    <!-- Filtri -->
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:15px;align-items:flex-end">
+      <div>
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Utente</label>
+        <select id="adminFiltroUtente" onchange="adminCarica()" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+          <option value="">— Tutti —</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Mese</label>
+        <input type="month" id="adminFiltroMese" onchange="adminCarica()" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+      </div>
+      <div>
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Tipo</label>
+        <select id="adminFiltroTipo" onchange="adminFiltra()" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+          <option value="">— Tutti —</option>
+          <option value="cantiere">Cantiere</option>
+          <option value="ufficio">Ufficio</option>
+          <option value="ferie">Ferie</option>
+          <option value="permesso">Permesso</option>
+          <option value="malattia">Malattia</option>
+          <option value="formazione">Formazione</option>
+        </select>
+      </div>
+      <button class="btn btn-primary small-btn" onclick="adminExportExcel()">⬇️ Esporta Excel</button>
+      <span id="adminContatore" style="color:#666;font-size:13px;align-self:center"></span>
+    </div>
+
+    <!-- Dashboard totali per utente -->
+    <div id="adminDashboard" style="margin-bottom:20px"></div>
+
+    <!-- Tabella presenze -->
+    <div style="overflow-x:auto">
+      <table class="pres-table">
+        <thead>
+          <tr>
+            <th>Data</th><th>Utente</th><th>Commessa</th><th>Tipo</th><th>Ore</th><th>Fonte</th><th>Azioni</th>
+          </tr>
+        </thead>
+        <tbody id="adminTbody"></tbody>
+      </table>
+    </div>
+    <div id="adminEmpty" class="info" style="display:none;text-align:center">Nessuna presenza trovata.</div>
+  </div>
+
+</div><!-- /container -->
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modalBox"></div>
+</div>
+
+<!-- Toast -->
+<div id="toastC"></div>
+
+<script>
+// ================================================
+// REDIRECT 127.0.0.1 + HIDE SHAREPOINT UI
+// ================================================
+(function(){
+  const hide=()=>{
+    ['#O365_NavHeader','#SuiteNavWrapper','.sp-appBar','.ms-siteHeader-container',
+     '.od-TopBar','.Files-topBar','div[data-automationid="SiteHeader"]',
+     '#spPageChromeAppDiv','#spSiteHeader','.SPPageChrome',
+     '.od-ItemsScopeCommandBar','.ms-CommandBar','div[class*="commandBar"]',
+     '.Files-commandBar','.od-Files-topBar'].forEach(s=>{
+      document.querySelectorAll(s).forEach(el=>{
+        if(el&&!el.querySelector('.login-box')&&!el.querySelector('.container'))el.style.display='none';
+      });
+    });
+    document.body.style.margin='0';document.body.style.padding='0';
+  };
+  hide();document.addEventListener('DOMContentLoaded',hide);window.addEventListener('load',hide);setInterval(hide,1000);
+  if(window.location.hostname==='127.0.0.1')
+    window.location.replace(window.location.href.replace('127.0.0.1','localhost'));
+})();
+
+// ================================================
+// CONFIG - identica al GDL
+// ================================================
+const msalConfig = {
+  auth: {
+    clientId: "1f1379c3-6946-4ef1-8977-35d32435d409",
+    authority: "https://login.microsoftonline.com/a1b7202e-cd9a-4043-98bf-ec0055b06878",
+    redirectUri: window.location.origin + "/blank.html",
+    knownAuthorities: ["login.microsoftonline.com"]
+  },
+  cache: { cacheLocation:"sessionStorage", storeAuthStateInCookie:false }
+};
+const loginRequest = { scopes:["Sites.ReadWrite.All","User.Read","Files.ReadWrite.All"] };
+
+// Sito GDL — contiene le liste Cantieri e Utenti (sola lettura da qui)
+const SP_GDL_URL      = "https://akhet.sharepoint.com/sites/Akhet-Giornaledeilavori";
+
+// Sito Presenze — contiene la lista Presenze (lettura + scrittura)
+const SP_PRESENZE_URL = "https://akhet.sharepoint.com/sites/Akhet-Presenze";
+
+const msalInstance = new msal.PublicClientApplication(msalConfig);
+
+// ================================================
+// STATO GLOBALE
+// ================================================
+let currentUser    = null;
+let accessToken    = null;
+let siteIdGdl      = null;  // Akhet-Giornaledeilavori → Cantieri, Utenti
+let siteIdPresenze = null;  // Akhet-Presenze → Presenze
+let utentiPresListId  = null; // lista Utenti nel sito Presenze
+let commesseListId    = null; // lista Commesse nel sito Presenze
+let commesseData      = [];   // cache commesse
+let cantieriListId = null;
+let presenzeListId = null;
+let utentiListId   = null;
+let currentRole   = 'operator';
+let currentEmail  = '';
+let cantieriData  = [];
+let utentiData    = [];
+let presenzeData  = [];  // presenze mese corrente utente loggato
+let presenzeAll   = [];  // tutte le presenze del mese (admin/sup)
+let presenzeCache = [];  // TUTTE le presenze caricate una volta sola
+let curMese = new Date().getMonth()+1;
+let curAnno = new Date().getFullYear();
+
+const MESI=['','Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno',
+            'Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+const TIPI=[
+  {v:'cantiere',l:'🏗️ Cantiere'},{v:'ufficio',l:'🏢 Ufficio'},
+  {v:'trasferta',l:'🚗 Trasferta'},{v:'formazione',l:'📚 Formazione'},
+  {v:'riunione',l:'💼 Riunione'},{v:'amministrativa',l:'📝 Amministrativa'},
+  {v:'ferie',l:'🏖️ Ferie'},{v:'malattia',l:'🤒 Malattia'},{v:'permesso',l:'⏰ Permesso'},
+];
+const TIPO_COLOR={
+  cantiere:'#27ae60',ufficio:'#3498db',trasferta:'#8e44ad',
+  formazione:'#16a085',riunione:'#7f8c8d',amministrativa:'#95a5a6',
+  ferie:'#f39c12',malattia:'#e74c3c',permesso:'#e67e22'
+};
+
+// ================================================
+// AUTH
+// ================================================
+async function loginMicrosoft(){
+  const btn=document.getElementById('btnLogin'),err=document.getElementById('loginError');
+  btn.disabled=true;btn.textContent='⏳ Connessione...';err.style.display='none';
+  try{
+    const lr=await msalInstance.loginPopup({...loginRequest, redirectUri: window.location.origin + "/blank.html"});
+    currentUser=lr.account;
+    const tr=await msalInstance.acquireTokenSilent({scopes:loginRequest.scopes,account:currentUser});
+    accessToken=tr.accessToken;
+    await initApp();
+  }catch(e){
+    err.textContent=`Errore: ${e.message}`;err.style.display='block';
+    btn.disabled=false;btn.textContent='🔐 Accedi con Microsoft 365';
+  }
+}
+
+function logout(){
+  sessionStorage.clear();
+  msalInstance.logoutPopup({postLogoutRedirectUri:window.location.origin}).catch(()=>window.location.reload());
+}
+
+function clearSession(){sessionStorage.clear();localStorage.clear();window.location.reload();}
+
+async function refreshToken(){
+  try{
+    const tr=await msalInstance.acquireTokenSilent({scopes:loginRequest.scopes,account:currentUser});
+    accessToken=tr.accessToken;
+  }catch(e){console.warn('Refresh token fallito',e);}
+}
+
+// ================================================
+// GRAPH API
+// ================================================
+async function gDelete(url){
+  await refreshToken();
+  const r=await fetch(`https://graph.microsoft.com/v1.0${url}`,{
+    method:'DELETE',
+    headers:{Authorization:`Bearer ${accessToken}`}
+  });
+  if(!r.ok && r.status!==204) throw new Error(`DELETE ${url}: ${r.status}`);
+}
+
+async function gPatch(url,data){
+  await refreshToken();
+  const r=await fetch(`https://graph.microsoft.com/v1.0${url}`,{
+    method:'PATCH',
+    headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},
+    body:JSON.stringify(data)
+  });
+  if(!r.ok) throw new Error(`PATCH ${url}: ${r.status}`);
+  return r.json();
+}
+
+async function gGet(url){
+  await refreshToken();
+  const r=await fetch(`https://graph.microsoft.com/v1.0${url}`,{headers:{Authorization:`Bearer ${accessToken}`}});
+  if(!r.ok)throw new Error(`Graph ${url}: ${r.status}`);
+  return r.json();
+}
+async function gPost(url,body){
+  await refreshToken();
+  const r=await fetch(`https://graph.microsoft.com/v1.0${url}`,{
+    method:'POST',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  });
+  if(!r.ok){const t=await r.text();throw new Error(t.substring(0,300));}
+  return r.json();
+}
+async function gPatch(url,body){
+  await refreshToken();
+  const r=await fetch(`https://graph.microsoft.com/v1.0${url}`,{
+    method:'PATCH',headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},
+    body:JSON.stringify(body)
+  });
+  if(!r.ok){const t=await r.text();throw new Error(t.substring(0,300));}
+  return r.json();
+}
+async function gDelete(url){
+  await refreshToken();
+  const r=await fetch(`https://graph.microsoft.com/v1.0${url}`,{method:'DELETE',headers:{Authorization:`Bearer ${accessToken}`}});
+  if(!r.ok)throw new Error(`Delete ${r.status}`);
+}
+
+// ================================================
+// INIT
+// ================================================
+function lsSet(msg, step, pct){
+  const m=document.getElementById('loadingMsg');
+  const b=document.getElementById('loadingBar');
+  const s=document.getElementById('loadingStep');
+  if(m) m.textContent=msg||'';
+  if(b) b.style.width=(pct||0)+'%';
+  if(s) s.textContent=step||'';
+}
+function lsShow(){ document.getElementById('loadingScreen').style.display='flex'; }
+function lsHide(){ document.getElementById('loadingScreen').style.display='none'; }
+
+async function initApp(){
+  document.getElementById('loginScreen').style.display='none';
+  // Mostra loading, NON ancora l'app
+  lsShow();
+  lsSet('Connessione a SharePoint…','Recupero identità siti',10);
+
+  currentEmail=(currentUser.username||currentUser.email||'').toLowerCase();
+  document.getElementById('userName').textContent=currentUser.name||currentEmail;
+
+  try{
+    lsSet('Connessione a SharePoint…','Recupero identità siti',15);
+    const [sdGdl, sdPres] = await Promise.all([
+      gGet(`/sites/${new URL(SP_GDL_URL).hostname}:${new URL(SP_GDL_URL).pathname}`),
+      gGet(`/sites/${new URL(SP_PRESENZE_URL).hostname}:${new URL(SP_PRESENZE_URL).pathname}`)
+    ]);
+    siteIdGdl      = sdGdl.id;
+    siteIdPresenze = sdPres.id;
+
+    lsSet('Connessione a SharePoint…','Recupero liste',35);
+    await loadListIds();
+
+    lsSet('Identificazione utente…','Controllo ruolo',50);
+    await loadRuolo();
+
+    lsSet('Caricamento dati…','Cantieri e commesse',65);
+    await loadCantieri();
+
+    lsSet('Caricamento dati…','Presenze',82);
+    await loadPresenzeCache();
+    loadPresenze();
+
+    lsSet('Pronto!','',100);
+    await new Promise(r=>setTimeout(r,350));
+
+    // Solo ora mostra l'app — nav già filtrata per ruolo da aggiornaNav()
+    lsHide();
+    document.getElementById('app').style.display='block';
+    aggiornaNav();
+    aggiornaHeader();
+    if(currentRole==='admin'){showSection('admin');}else{renderDashboard();}
+    showMsg('Connesso a SharePoint ✓','success');
+    setTimeout(()=>document.getElementById('msgGlobale').innerHTML='',3000);
+  }catch(e){
+    lsHide();
+    // Rimostra login con errore
+    document.getElementById('loginScreen').style.display='flex';
+    const errEl=document.getElementById('loginError');
+    if(errEl){errEl.textContent=`Errore di connessione: ${e.message}`;errEl.style.display='block';}
+    console.error(e);
+  }
+}
+
+async function loadListIds(){
+  // Cantieri e Utenti → sito GDL
+  const cR=await gGet(`/sites/${siteIdGdl}/lists?$filter=displayName eq 'Cantieri'`);
+  if(!cR.value.length)throw new Error("Lista 'Cantieri' non trovata sul sito GDL");
+  cantieriListId=cR.value[0].id;
+
+  const uR=await gGet(`/sites/${siteIdGdl}/lists?$filter=displayName eq 'Utenti'`);
+  if(uR.value.length)utentiListId=uR.value[0].id;
+
+  // Presenze → sito Presenze separato
+  const pR=await gGet(`/sites/${siteIdPresenze}/lists?$filter=displayName eq 'Presenze'`);
+  if(!pR.value.length)throw new Error("Lista 'Presenze' non trovata su Akhet-Presenze. Creala seguendo le istruzioni nel README.");
+  presenzeListId=pR.value[0].id;
+
+  // Carica ID liste Utenti e Commesse dal sito Presenze (se esistono)
+  const listsR = await gGet(`/sites/${siteIdPresenze}/lists?$select=id,displayName`);
+  for(const l of listsR.value){
+    if(l.displayName==='Utenti')   utentiPresListId = l.id;
+    if(l.displayName==='Commesse') commesseListId   = l.id;
+  }
+}
+
+async function loadRuolo(){
+  if(!utentiListId){currentRole='operator';return;}
+  try{
+    const r=await gGet(`/sites/${siteIdGdl}/lists/${utentiListId}/items?$expand=fields&$top=500`);
+    utentiData=r.value.map(i=>({email:(i.fields.Title||'').toLowerCase(),nome:i.fields.Nome||'',ruolo:(i.fields.Ruolo||'operator').toLowerCase()}));
+    const me=utentiData.find(u=>u.email===currentEmail);
+    currentRole=me?me.ruolo:'operator';
+    document.getElementById('userRoleBadge').textContent=currentRole;
+    document.getElementById('userRoleBadge').className='badge'+(currentRole==='admin'?' warn':currentRole==='supervisor'?' ':' gray');
+  }catch(e){console.warn('Errore ruolo:',e);currentRole='operator';}
+}
+
+async function loadCantieri(){
+  const r=await gGet(`/sites/${siteIdGdl}/lists/${cantieriListId}/items?$expand=fields&$top=1000`);
+  cantieriData=r.value.map(i=>({
+    id:i.id,title:i.fields.Title||'',
+    codComm:i.fields.CodComm||'',codProg:i.fields.CodProg||'',
+    codiceSito:i.fields.CodiceSito||'',committente:i.fields.Committente||'',
+  }));
+}
+
+// mappa un item SharePoint → oggetto presenza
+const mappa=i=>({
+  id:i.id,data:i.fields.DataPresenza?.substring(0,10)||i.fields.Title||'',
+  ore:parseFloat(i.fields.Ore||0),tipo:(i.fields.TipoPresenza||'ufficio').toLowerCase(),
+  utenteEmail:(i.fields.UtenteEmail||'').toLowerCase(),utenteName:i.fields.UtenteName||'',
+  codiceCommessa:i.fields.CodiceCommessa||'',
+  fonte:i.fields.Fonte||'manuale',modificabile:i.fields.Modificabile!==false,
+  idGiornale:i.fields.IdGiornale||null,nomeCantiere:i.fields.NomeCantiere||'',
+  descrizione:i.fields.DescrizioneAttivit_x00e0_||'',note:i.fields.Note||'',
+});
+
+// Carica TUTTE le presenze via Graph API con $select (solo campi necessari, più veloce di $expand)
+async function loadPresenzeCache(){
+  // $select sui fields specifici evita di caricare tutti i metadati
+  const fields = "fields/DataPresenza,fields/Ore,fields/TipoPresenza,fields/CodiceCommessa,fields/UtenteEmail,fields/UtenteName,fields/Fonte,fields/Modificabile,fields/IdGiornale,fields/NomeCantiere,fields/DescrizioneAttivit_x00e0_,fields/Note";
+  let userFilter = '';
+  if(currentRole==='operator') userFilter=`&$filter=${encodeURIComponent(`fields/UtenteEmail eq '${currentEmail}'`)}`;
+
+  let url = `/sites/${siteIdPresenze}/lists/${presenzeListId}/items?$expand=fields($select=DataPresenza,Ore,TipoPresenza,CodiceCommessa,UtenteEmail,UtenteName,Fonte,Modificabile,IdGiornale,NomeCantiere,DescrizioneAttivit_x00e0_,Note)&$select=id,fields&$top=5000${userFilter}`;
+  let tutti = [];
+
+  // Paginazione automatica con @odata.nextLink
+  while(url){
+    const data = await gGet(url);
+    tutti = tutti.concat(data.value.map(mappa));
+    url = data['@odata.nextLink']
+      ? data['@odata.nextLink'].replace('https://graph.microsoft.com/v1.0','')
+      : null;
+  }
+  presenzeCache = tutti;
+}
+
+// Filtra la cache per il mese corrente (istantaneo, nessuna chiamata API)
+function loadPresenze(){
+  const meseStr=`${curAnno}-${String(curMese).padStart(2,'0')}`;
+  const dal=`${meseStr}-01`;
+  const al=`${meseStr}-${String(new Date(curAnno,curMese,0).getDate()).padStart(2,'0')}`;
+  const tutti=presenzeCache.filter(p=>p.data>=dal && p.data<=al);
+  presenzeAll=tutti;
+  presenzeData=currentRole==='operator'?tutti.filter(p=>p.utenteEmail===currentEmail):tutti;
+}
+
+// ================================================
+// UI HELPERS
+// ================================================
+function aggiornaNav(){
+  const isSup=currentRole==='supervisor'||currentRole==='admin';
+  const isAdm=currentRole==='admin';
+  // Admin: nasconde sezioni personali, mostra gestione
+  document.getElementById('nav-dashboard').style.display=isAdm?'none':'';
+  document.getElementById('nav-presenze').style.display=isAdm?'none':'';
+  document.getElementById('nav-calendario').style.display=isAdm?'none':'';
+  document.getElementById('nav-team').style.display=(isSup&&!isAdm)?'':'none';
+  document.getElementById('nav-commesse').style.display=isSup?'':'none';
+  document.getElementById('nav-admin').style.display=isAdm?'':'none';
+  document.getElementById('nav-utenti').style.display=isAdm?'':'none';
+}
+
+function aggiornaHeader(){
+  const lbl=`${MESI[curMese]} ${curAnno}`;
+  document.getElementById('meseLabel').textContent=lbl;
+  document.getElementById('dashGreet').textContent=
+    `📊 Dashboard — ${currentUser.name?.split(' ')[0]||'utente'} — ${lbl}`;
+}
+
+function showSection(name){
+  // Mostra/nascondi navigatore mese
+  const noMese = ['admin','utenti','commesse'];
+  document.getElementById('meseNav').style.display = noMese.includes(name) ? 'none' : '';
+
+  if(name==='admin'){
+    adminInitFiltroMese();
+    adminPopulaUtenti();
+    adminCarica();
+  }
+  if(name==='utenti'){
+    loadUtentiPres().then(renderUtenti);
+  }
+  if(name==='commesse'){
+    const isAdm=currentRole==='admin';
+    if(isAdm) loadCommessePres().then(renderCommesse);
+    else renderCommesse();
+  }
+
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));
+  document.getElementById(`sec-${name}`).classList.add('active');
+  document.getElementById(`nav-${name}`)?.classList.add('active');
+  if(name==='dashboard')renderDashboard();
+  if(name==='presenze')renderPresenze();
+  if(name==='calendario')renderCalendario();
+  if(name==='team')renderTeam();
+  if(name==='commesse')renderCommesse();
+}
+
+async function cambiaMe(d){
+  curMese+=d;
+  if(curMese>12){curMese=1;curAnno++;}
+  if(curMese<1){curMese=12;curAnno--;}
+  aggiornaHeader();
+  showMsg('Aggiornamento...','info');
+  loadPresenze();
+  const att=document.querySelector('.section.active')?.id?.replace('sec-','')||'dashboard';
+  showSection(att);
+}
+
+function showMsg(msg,type){
+  const m=document.getElementById('msgGlobale');
+  const cls={success:'success',error:'error',info:'info'}[type]||'info';
+  m.innerHTML=`<span class="${cls}" style="padding:6px 12px;border-radius:5px;font-size:13px;display:inline-block">${msg}</span>`;
+}
+
+function calcTot(list){
+  return list.reduce((a,p)=>{
+    a.tot+=p.ore;
+    if(p.tipo==='cantiere')a.cant+=p.ore;
+    else if(['ferie','malattia','permesso'].includes(p.tipo))a.ass+=p.ore;
+    else a.uff+=p.ore;
+    return a;
+  },{tot:0,cant:0,uff:0,ass:0});
+}
+
+function mie(){return presenzeData.filter(p=>p.utenteEmail===currentEmail);}
+
+function f1(n){return parseFloat(n||0).toFixed(1);}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function fData(d){if(!d)return'—';const p=d.split('-');return`${p[2]}/${p[1]}/${p[0]}`;}
+function dow(d){return['','Lun','Mar','Mer','Gio','Ven','Sab','Dom'][new Date(d).getDay()||7]||'';}
+function tipoL(t){return TIPI.find(x=>x.v===t)?.l||t;}
+function tipoBadge(t){return`<span class="tipo-badge tipo-${t}">${tipoL(t)}</span>`;}
+
+// ================================================
+// DASHBOARD
+// ================================================
+function renderDashboard(){
+  const mp=mie(),tot=calcTot(mp);
+  const contratto=160;
+  const perc=Math.min(100,Math.round(tot.tot/contratto*100));
+  const diff=contratto-tot.tot;
+  document.getElementById('dashStats').innerHTML=`
+    <div class="stat-box green">
+      <div class="stat-num">${f1(tot.cant)}h</div>
+      <div class="stat-lbl">🏗️ Ore cantiere</div>
+      <div class="stat-sub">${mp.filter(p=>p.tipo==='cantiere').length} giornate</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-num">${f1(tot.uff)}h</div>
+      <div class="stat-lbl">🏢 Ufficio / Altro</div>
+    </div>
+    <div class="stat-box orange">
+      <div class="stat-num">${f1(tot.ass)}h</div>
+      <div class="stat-lbl">🏖️ Ferie / Permessi</div>
+    </div>
+    <div class="stat-box ${diff>0?'red':'green'}">
+      <div class="stat-num">${f1(tot.tot)}h</div>
+      <div class="stat-lbl">📊 Totale / ${contratto}h</div>
+      <div class="stat-sub" style="color:${diff>0?'#e74c3c':'#27ae60'}">${diff>0?'–'+f1(diff)+'h al contratto':'✓ Completato'}</div>
+    </div>`;
+  const pb=document.getElementById('dashPb');
+  pb.style.width=perc+'%';
+  pb.className='progress-bar '+(perc>=85?'green':perc>=60?'orange':'red');
+  document.getElementById('dashPbLabel').textContent=`Monte ore: ${f1(tot.tot)} / ${contratto}h (${perc}%)`;
+  renderCalMini(mp);
+  renderUltime(mp.slice().sort((a,b)=>b.data.localeCompare(a.data)).slice(0,5));
+}
+
+function renderCalMini(mp){
+  const byDay={};
+  mp.forEach(p=>{const d=parseInt(p.data.split('-')[2]);if(!byDay[d])byDay[d]=[];byDay[d].push(p);});
+  const primo=new Date(curAnno,curMese-1,1).getDay()||7;
+  const gMese=new Date(curAnno,curMese,0).getDate();
+  const oggi=new Date();
+  let html=`<div class="cal-grid">`;
+  ['Lu','Ma','Me','Gi','Ve','Sa','Do'].forEach(g=>html+=`<div class="cal-hdr">${g}</div>`);
+  for(let i=1;i<primo;i++)html+=`<div class="cal-day empty"></div>`;
+  for(let d=1;d<=gMese;d++){
+    const ds=`${curAnno}-${String(curMese).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dow2=new Date(curAnno,curMese-1,d).getDay()||7;
+    const isWe=dow2>=6;
+    const isOg=d===oggi.getDate()&&curMese===oggi.getMonth()+1&&curAnno===oggi.getFullYear();
+    const pass=ds<`${curAnno}-${String(curMese).padStart(2,'0')}-${String(oggi.getDate()).padStart(2,'0')}`;
+    const pDay=byDay[d]||[];
+    const ore=pDay.reduce((s,p)=>s+p.ore,0);
+    const tipi=pDay.map(p=>p.tipo);
+    let cls='cal-day';
+    if(isWe)cls+=' weekend';
+    else if(isOg)cls+=' today';
+    if(!pDay.length&&!isWe&&pass)cls+=' missing';
+    else if(tipi.includes('cantiere'))cls+=' has-cant';
+    else if(tipi.some(t=>['ufficio','trasferta','formazione','riunione'].includes(t)))cls+=' has-uff';
+    else if(tipi.some(t=>['ferie','malattia','permesso'].includes(t)))cls+=' has-ass';
+    html+=`<div class="${cls}" onclick="${pDay.length?`showSection('presenze')`:`apriModalPresenza('${ds}')`}" style="padding:5px">
+      <div class="cal-day-num">${d}</div>
+      ${ore?`<div style="font-size:10px;font-family:'Courier New',monospace;color:#666">${f1(ore)}h</div>`:''}
+    </div>`;
+  }
+  html+=`</div>`;
+  document.getElementById('dashCal').innerHTML=html;
+}
+
+function renderUltime(list){
+  if(!list.length){document.getElementById('dashUltime').innerHTML='<div class="info">Nessuna presenza registrata.</div>';return;}
+  document.getElementById('dashUltime').innerHTML=`
+  <table class="pres-table">
+    <tbody>${list.map(p=>`
+    <tr>
+      <td><strong>${fData(p.data)}</strong><br><small style="color:#666">${dow(p.data)}</small></td>
+      <td>${tipoBadge(p.tipo)}</td>
+      <td><strong style="color:#2c3e50;font-family:'Courier New',monospace">${esc(p.codiceCommessa)||'—'}</strong></td>
+      <td><strong style="font-size:15px">${f1(p.ore)}h</strong> ${!p.modificabile?'<span class="fonte-gdl">🔒</span>':''}</td>
+    </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+// ================================================
+// PRESENZE
+// ================================================
+function renderPresenze(){
+  const mp=mie().sort((a,b)=>b.data.localeCompare(a.data));
+  const tot=calcTot(mp);
+  document.getElementById('presStats').innerHTML=`
+    <div class="stat-box green"><div class="stat-num">${f1(tot.cant)}h</div><div class="stat-lbl">🏗️ Cantiere</div></div>
+    <div class="stat-box"><div class="stat-num">${f1(tot.uff)}h</div><div class="stat-lbl">🏢 Ufficio/Altro</div></div>
+    <div class="stat-box orange"><div class="stat-num">${f1(tot.ass)}h</div><div class="stat-lbl">🏖️ Assenze</div></div>
+    <div class="stat-box gray"><div class="stat-num">${f1(tot.tot)}h</div><div class="stat-lbl">📊 Totale</div></div>`;
+  document.getElementById('presCount').textContent=mp.length+' voci';
+  renderPresTbody(mp);
+}
+
+function renderPresTbody(mp){
+  const q=(document.getElementById('presSearch')?.value||'').toLowerCase();
+  const fl=q?mp.filter(p=>(p.codiceCommessa+p.tipo+p.nomeCantiere+p.descrizione).toLowerCase().includes(q)):mp;
+  document.getElementById('presCount').textContent=fl.length+' voci';
+  document.getElementById('presEmpty').style.display=fl.length?'none':'block';
+  document.getElementById('presTbody').innerHTML=fl.map(p=>`
+  <tr>
+    <td><strong>${fData(p.data)}</strong><br><small style="color:#666">${dow(p.data)}</small></td>
+    <td><strong style="font-family:'Courier New',monospace;color:#2c3e50">${esc(p.codiceCommessa)||'—'}</strong></td>
+    <td>${tipoBadge(p.tipo)}</td>
+    <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#666;font-size:13px">
+      ${esc(p.nomeCantiere||p.descrizione||'—')}
+    </td>
+    <td><strong style="font-size:15px">${f1(p.ore)}h</strong></td>
+    <td>${p.fonte==='gdl'?`<span class="fonte-gdl">🔒 GDL${p.idGiornale?' #'+p.idGiornale:''}</span>`:`<span class="fonte-manuale">✏️ Manuale</span>`}</td>
+    <td>
+      <button class="btn btn-primary small-btn" onclick="vediPresenza('${p.id}')" title="Dettagli">👁 Vedi</button>
+      ${p.modificabile
+        ?`<button class="btn btn-warning small-btn" onclick="modificaPresenza('${p.id}')">✏️</button>
+           <button class="btn btn-danger small-btn" onclick="eliminaPresenza('${p.id}')">🗑️</button>`
+        :`<span style="color:#aaa;font-size:12px">🔒</span>`}
+    </td>
+  </tr>`).join('');
+}
+
+function filtraPresenze(){renderPresTbody(mie().sort((a,b)=>b.data.localeCompare(a.data)));}
+
+// ================================================
+// CALENDARIO ESPANSO
+// ================================================
+function renderCalendario(){
+  const mp=mie();
+  const byDay={};
+  mp.forEach(p=>{const d=parseInt(p.data.split('-')[2]);if(!byDay[d])byDay[d]=[];byDay[d].push(p);});
+  const primo=new Date(curAnno,curMese-1,1).getDay()||7;
+  const gMese=new Date(curAnno,curMese,0).getDate();
+  const oggi=new Date().toISOString().split('T')[0];
+
+  let html=`<div style="background:#fff;border:2px solid #3498db;border-radius:8px;padding:15px">`;
+  html+=`<div class="cal-grid" style="margin-bottom:4px">`;
+  ['Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato','Domenica'].forEach(g=>{
+    html+=`<div class="cal-hdr" style="font-size:12px">${g.substring(0,3)}</div>`;
+  });
+  html+=`</div><div class="cal-grid">`;
+  for(let i=1;i<primo;i++)html+=`<div class="cal-day empty"></div>`;
+  for(let d=1;d<=gMese;d++){
+    const ds=`${curAnno}-${String(curMese).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dow2=new Date(curAnno,curMese-1,d).getDay()||7;
+    const isWe=dow2>=6;
+    const isOg=ds===oggi;
+    const pass=ds<oggi;
+    const pDay=byDay[d]||[];
+    const totOre=pDay.reduce((s,p)=>s+p.ore,0);
+    const tipi=pDay.map(p=>p.tipo);
+    let cls='cal-day';
+    if(isWe)cls+=' weekend';
+    else if(isOg)cls+=' today';
+    if(!pDay.length&&!isWe&&pass)cls+=' missing';
+    else if(tipi.includes('cantiere'))cls+=' has-cant';
+    else if(tipi.some(t=>['ufficio','trasferta','formazione','riunione'].includes(t)))cls+=' has-uff';
+    else if(tipi.some(t=>['ferie','malattia','permesso'].includes(t)))cls+=' has-ass';
+    html+=`<div class="${cls}" onclick="${pDay.length?`showSection('presenze')`:`apriModalPresenza('${ds}')`}">
+      <div class="cal-day-num">${d}</div>
+      ${totOre?`<div style="font-size:10px;font-family:'Courier New',monospace;color:#444">${f1(totOre)}h</div>`:''}
+      ${pDay.map(p=>`<div class="cal-chip" style="color:${TIPO_COLOR[p.tipo]||'#666'}">${esc(p.codiceCommessa)||tipoL(p.tipo)} ${f1(p.ore)}h${!p.modificabile?' 🔒':''}</div>`).join('')}
+      ${!pDay.length&&!isWe?`<div style="font-size:10px;color:${pass?'#e74c3c':'#aaa'};margin-top:4px">${pass?'⚠️ mancante':'+ inserisci'}</div>`:''}
+    </div>`;
+  }
+  html+=`</div></div>`;
+  document.getElementById('calBody').innerHTML=html;
+}
+
+// ================================================
+// TEAM
+// ================================================
+function renderTeam(){
+  const byU={};
+  presenzeAll.forEach(p=>{
+    const k=p.utenteEmail;
+    if(!byU[k])byU[k]={email:k,nome:p.utenteName||k,presenze:[]};
+    byU[k].presenze.push(p);
+  });
+  // Aggiunge utenti dalla lista GDL ma ESCLUDE admin e supervisor
+  utentiData
+    .filter(u=>u.ruolo==='operator')
+    .forEach(u=>{if(!byU[u.email])byU[u.email]={email:u.email,nome:u.nome||u.email,presenze:[]};});
+  // Aggiunge utenti trovati nella cache presenze (potrebbero non essere nel GDL)
+  presenzeCache.forEach(p=>{
+    if(!byU[p.utenteEmail])byU[p.utenteEmail]={email:p.utenteEmail,nome:p.utenteName||p.utenteEmail,presenze:[]};
+  });
+  // Escludi chi è esplicitamente admin/supervisor nella lista GDL
+  const emailEsclusi=new Set(utentiData.filter(u=>u.ruolo!=='operator').map(u=>u.email));
+  const rows=Object.values(byU)
+    .filter(r=>!emailEsclusi.has(r.email))
+    .sort((a,b)=>a.nome.localeCompare(b.nome));
+  const c=160;
+  document.getElementById('teamTbody').innerHTML=rows.map(r=>{
+    const t=calcTot(r.presenze);
+    const perc=Math.min(100,Math.round(t.tot/c*100));
+    const pcls=perc>=85?'green':perc>=60?'orange':'red';
+    return`<tr>
+      <td><strong>${esc(r.nome)}</strong><br><small style="color:#999">${r.email}</small></td>
+      <td style="color:#27ae60;font-family:'Courier New',monospace;font-weight:700">${f1(t.cant)}h</td>
+      <td style="color:#3498db;font-family:'Courier New',monospace">${f1(t.uff)}h</td>
+      <td style="color:#f39c12;font-family:'Courier New',monospace">${f1(t.ass)}h</td>
+      <td><strong style="font-family:'Courier New',monospace">${f1(t.tot)}h</strong></td>
+      <td style="min-width:100px">
+        <div class="progress-wrap" style="margin:0">
+          <div class="progress-bar ${pcls}" style="width:${perc}%"></div>
+        </div>
+        <div style="font-size:11px;color:#666;text-align:right">${perc}%</div>
+      </td>
+      <td><button class="btn btn-primary small-btn" onclick="vediPresenzeUtente('${r.email}')">👁 Vedi</button></td>
+    </tr>`;
+  }).join('');
+
+  const byC={};
+  presenzeAll.forEach(p=>{if(!byC[p.codiceCommessa||'—'])byC[p.codiceCommessa||'—']=0;byC[p.codiceCommessa||'—']+=p.ore;});
+  const cRows=Object.entries(byC).sort((a,b)=>b[1]-a[1]);
+  const maxO=cRows[0]?.[1]||1;
+  document.getElementById('teamCommesse').innerHTML=cRows.map(([cod,ore])=>`
+    <div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:3px">
+        <strong style="font-family:'Courier New',monospace;color:#2c3e50">${esc(cod)}</strong>
+        <span style="font-family:'Courier New',monospace;color:#666">${f1(ore)}h</span>
+      </div>
+      <div class="progress-wrap" style="margin:0">
+        <div class="progress-bar green" style="width:${Math.round(ore/maxO*100)}%"></div>
+      </div>
+    </div>`).join('')||'<div class="info">Nessun dato disponibile.</div>';
+}
+
+function vediPresenzeUtente(email){
+  const pu=presenzeAll.filter(p=>p.utenteEmail===email).sort((a,b)=>b.data.localeCompare(a.data));
+  const t=calcTot(pu);
+  openModal(`
+  <div class="modal-header"><h3>👤 Presenze — ${esc(email)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  <div class="modal-body">
+    <div class="stat-row" style="grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:15px">
+      <div class="stat-box green"><div class="stat-num">${f1(t.cant)}h</div><div class="stat-lbl">Cantiere</div></div>
+      <div class="stat-box"><div class="stat-num">${f1(t.uff)}h</div><div class="stat-lbl">Ufficio</div></div>
+      <div class="stat-box gray"><div class="stat-num">${f1(t.tot)}h</div><div class="stat-lbl">Totale</div></div>
+    </div>
+    <div style="overflow-x:auto;max-height:320px;overflow-y:auto">
+    <table class="pres-table">
+      <thead><tr><th>Data</th><th>Commessa</th><th>Tipo</th><th>Ore</th><th>Fonte</th></tr></thead>
+      <tbody>${pu.map(p=>`<tr>
+        <td>${fData(p.data)}</td>
+        <td><strong style="font-family:'Courier New',monospace">${esc(p.codiceCommessa)||'—'}</strong></td>
+        <td>${tipoBadge(p.tipo)}</td>
+        <td><strong>${f1(p.ore)}h</strong></td>
+        <td>${p.fonte==='gdl'?'<span class="fonte-gdl">🔒 GDL</span>':'<span class="fonte-manuale">✏️</span>'}</td>
+      </tr>`).join('')}</tbody>
+    </table></div>
+  </div>
+  <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Chiudi</button></div>`);
+}
+
+// ================================================
+// COMMESSE
+// ================================================
+function renderCommesse(){
+  const q=(document.getElementById('commSearch')?.value||'').toLowerCase();
+  const rows=q?cantieriData.filter(c=>(c.codComm+c.codProg+c.title+c.committente).toLowerCase().includes(q)):cantieriData;
+  const oreC={};
+  presenzeAll.forEach(p=>{if(!oreC[p.codiceCommessa])oreC[p.codiceCommessa]=0;oreC[p.codiceCommessa]+=p.ore;});
+  document.getElementById('commEmpty').style.display=rows.length?'none':'block';
+  document.getElementById('commTbody').innerHTML=rows.map(c=>`
+  <tr>
+    <td><strong style="font-family:'Courier New',monospace;color:#2c3e50">${esc(c.codComm)||'—'}</strong></td>
+    <td style="font-family:'Courier New',monospace;color:#666">${esc(c.codProg)||'—'}</td>
+    <td>
+      <strong>${esc(c.title)}</strong>
+      ${c.committente?`<br><small style="color:#666">${esc(c.committente)}</small>`:''}
+    </td>
+    <td style="color:#666;font-size:13px">${esc(c.codiceSito)||'—'}</td>
+    <td><strong style="font-family:'Courier New',monospace">${f1(oreC[c.codComm]||0)}h</strong></td>
+    <td><button class="btn btn-primary small-btn" onclick="vediCommessa('${c.id}')">📊 Statistiche</button></td>
+  </tr>`).join('');
+}
+
+function vediCommessa(id){
+  const c=cantieriData.find(x=>x.id===id);if(!c)return;
+  const pc=presenzeAll.filter(p=>p.codiceCommessa===c.codComm);
+  const t=calcTot(pc);
+  const byP={};
+  pc.forEach(p=>{if(!byP[p.utenteEmail])byP[p.utenteEmail]={nome:p.utenteName||p.utenteEmail,ore:0};byP[p.utenteEmail].ore+=p.ore;});
+  openModal(`
+  <div class="modal-header"><h3>📊 ${esc(c.codComm)} — Statistiche</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  <div class="modal-body">
+    <p style="color:#666;margin-bottom:15px"><strong>Committente:</strong> ${esc(c.committente)||'—'} &nbsp;|&nbsp; <strong>Sito:</strong> ${esc(c.codiceSito)||'—'}</p>
+    <div class="stat-row" style="grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:15px">
+      <div class="stat-box green"><div class="stat-num">${f1(t.cant)}h</div><div class="stat-lbl">Cantiere</div></div>
+      <div class="stat-box"><div class="stat-num">${f1(t.uff)}h</div><div class="stat-lbl">Ufficio</div></div>
+      <div class="stat-box gray"><div class="stat-num">${f1(t.tot)}h</div><div class="stat-lbl">Totale</div></div>
+    </div>
+    <h3 style="font-size:14px;margin-bottom:10px">👥 Personale — ${MESI[curMese]} ${curAnno}</h3>
+    ${Object.values(byP).sort((a,b)=>b.ore-a.ore).map(p=>`
+    <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f0f0f0">
+      <span>${esc(p.nome)}</span>
+      <strong style="font-family:'Courier New',monospace">${f1(p.ore)}h</strong>
+    </div>`).join('')||'<div class="info">Nessuna presenza registrata in questo periodo.</div>'}
+  </div>
+  <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Chiudi</button></div>`);
+}
+
+// ================================================
+// MODAL INSERIMENTO PRESENZA
+// ================================================
+function apriModalPresenza(dataPreset=''){
+  const oggi=dataPreset||new Date().toISOString().split('T')[0];
+  const optsT=TIPI.map(t=>`<option value="${t.v}">${t.l}</option>`).join('');
+  openModal(`
+  <div class="modal-header"><h3>➕ Inserisci presenza</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  <div class="modal-body">
+    <div id="msgModal"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px">
+      <div class="form-group">
+        <label>Data *</label>
+        <input type="date" id="pData" value="${oggi}" required>
+      </div>
+      <div class="form-group">
+        <label>Tipo presenza *</label>
+        <select id="pTipo" onchange="onTipoChange(this.value)" required>${optsT}</select>
+      </div>
+    </div>
+    <div class="form-group" id="grpComm">
+      <label>Codice Commessa *</label>
+      <div class="comm-box">
+        <input type="text" class="comm-search" id="commSrch" placeholder="🔍 Cerca codice commessa..." oninput="popolaComm(this.value)">
+        <div class="comm-list" id="commList"></div>
+      </div>
+      <input type="hidden" id="pCommId">
+      <input type="hidden" id="pCommCod">
+      <p style="font-size:12px;color:#666;margin-top:5px">ℹ️ Seleziona la commessa — verrà salvato solo il codice</p>
+    </div>
+    <div class="form-group">
+      <label>Ore lavorate *</label>
+      <div class="ore-wrap">
+        <button type="button" class="ore-btn" onclick="stepO(-0.5)">−</button>
+        <input type="number" id="pOre" class="ore-input" value="8" min="0.5" max="12" step="0.5" required>
+        <button type="button" class="ore-btn" onclick="stepO(0.5)">+</button>
+      </div>
+      <div class="ore-quick">${[4,6,7.5,8,9].map(v=>`<span class="${v===8?'sel':''}" data-ore="${v}" onclick="setO(${v})">${v}h</span>`).join('')}</div>
+    </div>
+    <div class="form-group">
+      <label>Descrizione attività</label>
+      <textarea id="pDescr" placeholder="Descrivi brevemente le attività svolte..."></textarea>
+    </div>
+    <div class="form-group">
+      <label>Note</label>
+      <textarea id="pNote" style="min-height:50px" placeholder="Note aggiuntive (opzionale)..."></textarea>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeModal()">Annulla</button>
+    <button class="btn btn-success" onclick="salvaPresenza()" id="btnSalva">💾 Salva presenza</button>
+  </div>`);
+  popolaComm('');
+}
+
+function popolaComm(q){
+  const ql=q.toLowerCase();
+  const fl=cantieriData.filter(c=>!q||(c.codComm+' '+c.title+' '+c.codProg).toLowerCase().includes(ql));
+  const selId=document.getElementById('pCommId')?.value;
+  document.getElementById('commList').innerHTML=fl.slice(0,30).map(c=>`
+    <div class="comm-item ${selId===c.id?'sel':''}" onclick="selComm('${c.id}','${esc(c.codComm)}','${esc(c.title)}')">
+      <span class="ci-code">${esc(c.codComm)||'—'}</span>
+      <span class="ci-desc">${esc(c.title)} ${c.codProg?'· '+c.codProg:''} ${c.committente?'— '+c.committente:''}</span>
+    </div>`).join('')||`<div style="padding:12px;color:#666">Nessuna commessa trovata</div>`;
+}
+
+function selComm(id,cod,titolo){
+  document.getElementById('pCommId').value=id;
+  document.getElementById('pCommCod').value=cod;
+  document.getElementById('commSrch').value=`${cod} — ${titolo}`;
+  document.getElementById('commList').innerHTML=`
+    <div class="comm-item sel">
+      <span class="ci-code">✓ ${esc(cod)}</span>
+      <span class="ci-desc">${esc(titolo)} — <a href="javascript:void(0)" onclick="document.getElementById('pCommId').value='';document.getElementById('commSrch').value='';popolaComm('')" style="color:#3498db">cambia</a></span>
+    </div>`;
+}
+
+function onTipoChange(tipo){
+  const amm=['ferie','malattia','permesso'];
+  if(amm.includes(tipo)){
+    const a=cantieriData.find(c=>c.codComm==='ADMIN'||c.title==='ADMIN');
+    if(a)selComm(a.id,a.codComm,a.title);
+  }
+}
+
+function stepO(d){
+  const inp=document.getElementById('pOre');if(!inp)return;
+  let v=parseFloat(inp.value||8)+d;
+  v=Math.max(0.5,Math.min(12,Math.round(v*2)/2));
+  inp.value=v;
+  document.querySelectorAll('.ore-quick span').forEach(s=>s.classList.toggle('sel',parseFloat(s.dataset.ore)===v));
+}
+
+function setO(v){
+  const inp=document.getElementById('pOre');if(inp)inp.value=v;
+  document.querySelectorAll('.ore-quick span').forEach(s=>s.classList.toggle('sel',parseFloat(s.dataset.ore)===v));
+}
+
+async function salvaPresenza(editId=null){
+  const data=document.getElementById('pData')?.value;
+  const tipo=document.getElementById('pTipo')?.value;
+  const ore=parseFloat(document.getElementById('pOre')?.value);
+  const commId=document.getElementById('pCommId')?.value;
+  const cod=document.getElementById('pCommCod')?.value;
+  const descr=document.getElementById('pDescr')?.value||'';
+  const note=document.getElementById('pNote')?.value||'';
+  const msgM=document.getElementById('msgModal');
+
+  if(!data||!tipo||!ore||!commId){
+    msgM.innerHTML='<div class="error">⚠️ Compila tutti i campi obbligatori (data, tipo, ore, commessa).</div>';return;
+  }
+  const cantiere=cantieriData.find(c=>c.id===commId);
+  const fields={
+    Title:data,DataPresenza:data,Ore:ore,TipoPresenza:tipo,
+    CodiceCommessa:cod,UtenteEmail:currentEmail,UtenteName:currentUser.name||currentEmail,
+    Fonte:'manuale',Modificabile:true,
+    NomeCantiere:cantiere?.title||'',DescrizioneAttivita:descr,Note:note,
+  };
+  const btn=document.getElementById('btnSalva');
+  btn.disabled=true;btn.textContent='⏳ Salvataggio...';
+  msgM.innerHTML='<div class="info">📤 Salvataggio su SharePoint...</div>';
+  try{
+    if(editId){
+      await gPatch(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items/${editId}/fields`,fields);
+      const idx=presenzeData.findIndex(p=>p.id===editId);
+      if(idx>=0)Object.assign(presenzeData[idx],{data,ore,tipo,codiceCommessa:cod,nomeCantiere:cantiere?.title||'',descrizione:descr,note});
+      presenzeCache=presenzeCache.map(p=>p.id===editId?{...p,...{data,ore,tipo,codiceCommessa:cod}}:p);
+      presenzeAll=presenzeAll.map(p=>p.id===editId?{...p,...{data,ore,tipo,codiceCommessa:cod}}:p);
+      toast('Presenza aggiornata ✓','s');
+    }else{
+      const res=await gPost(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items`,{fields});
+      const nuova={id:res.id,data,ore,tipo,utenteEmail:currentEmail,utenteName:currentUser.name||'',
+        codiceCommessa:cod,fonte:'manuale',modificabile:true,nomeCantiere:cantiere?.title||'',descrizione:descr,note};
+      presenzeCache.push(nuova);presenzeData.push(nuova);presenzeAll.push(nuova);
+      toast('Presenza salvata ✓','s');
+    }
+    closeModal();
+    const att=document.querySelector('.section.active')?.id?.replace('sec-','')||'dashboard';
+    showSection(att);
+  }catch(e){
+    msgM.innerHTML=`<div class="error">❌ ${esc(e.message)}</div>`;
+    btn.disabled=false;btn.textContent='💾 Salva presenza';
+  }
+}
+
+// ================================================
+// DETTAGLIO / MODIFICA / ELIMINA
+// ================================================
+function vediPresenza(id){
+  const p=presenzeData.find(x=>x.id===id);if(!p)return;
+  openModal(`
+  <div class="modal-header"><h3>📋 Dettaglio presenza</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  <div class="modal-body">
+    ${!p.modificabile?`<div class="info">🔒 Presenza proveniente dal <strong>Giornale Lavori${p.idGiornale?' #'+p.idGiornale:''}</strong> — non modificabile da qui.</div>`:''}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px">
+      <div><label>Data</label><p><strong>${fData(p.data)}</strong> (${dow(p.data)})</p></div>
+      <div><label>Tipo</label><p>${tipoBadge(p.tipo)}</p></div>
+      <div><label>Commessa</label><p><strong style="font-family:'Courier New',monospace;font-size:16px">${esc(p.codiceCommessa)||'—'}</strong></p></div>
+      <div><label>Ore</label><p style="font-size:22px;font-weight:700;color:#2c3e50">${f1(p.ore)}h</p></div>
+      ${p.nomeCantiere?`<div style="grid-column:1/-1"><label>Cantiere</label><p>${esc(p.nomeCantiere)}</p></div>`:''}
+      ${p.descrizione?`<div style="grid-column:1/-1"><label>Descrizione</label><p>${esc(p.descrizione)}</p></div>`:''}
+      ${p.note?`<div style="grid-column:1/-1"><label>Note</label><p style="color:#666">${esc(p.note)}</p></div>`:''}
+    </div>
+    <p style="font-size:12px;color:#999;margin-top:15px;padding-top:12px;border-top:1px solid #eee">
+      Inserito da: ${esc(p.utenteName||p.utenteEmail)} &nbsp;·&nbsp; Fonte: ${p.fonte==='gdl'?'🔒 Giornale Lavori':'✏️ Manuale'}
+    </p>
+  </div>
+  <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal()">Chiudi</button></div>`);
+}
+
+function modificaPresenza(id){
+  const p=presenzeData.find(x=>x.id===id);
+  if(!p||!p.modificabile){toast('Presenza non modificabile','e');return;}
+  const optsT=TIPI.map(t=>`<option value="${t.v}" ${t.v===p.tipo?'selected':''}>${t.l}</option>`).join('');
+  openModal(`
+  <div class="modal-header"><h3>✏️ Modifica presenza</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  <div class="modal-body">
+    <div id="msgModal"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:15px">
+      <div class="form-group"><label>Data *</label><input type="date" id="pData" value="${p.data}" required></div>
+      <div class="form-group"><label>Tipo *</label><select id="pTipo" required>${optsT}</select></div>
+    </div>
+    <div class="form-group" id="grpComm">
+      <label>Commessa</label>
+      <div class="comm-box">
+        <input type="text" class="comm-search" id="commSrch" placeholder="🔍 Cerca..." oninput="popolaComm(this.value)" value="${esc(p.codiceCommessa)}">
+        <div class="comm-list" id="commList"></div>
+      </div>
+      <input type="hidden" id="pCommId">
+      <input type="hidden" id="pCommCod" value="${esc(p.codiceCommessa)}">
+    </div>
+    <div class="form-group">
+      <label>Ore *</label>
+      <div class="ore-wrap">
+        <button type="button" class="ore-btn" onclick="stepO(-0.5)">−</button>
+        <input type="number" id="pOre" class="ore-input" value="${p.ore}" min="0.5" max="12" step="0.5">
+        <button type="button" class="ore-btn" onclick="stepO(0.5)">+</button>
+      </div>
+      <div class="ore-quick">${[4,6,7.5,8,9].map(v=>`<span class="${v===p.ore?'sel':''}" data-ore="${v}" onclick="setO(${v})">${v}h</span>`).join('')}</div>
+    </div>
+    <div class="form-group"><label>Descrizione</label><textarea id="pDescr">${esc(p.descrizione)}</textarea></div>
+    <div class="form-group"><label>Note</label><textarea id="pNote" style="min-height:50px">${esc(p.note)}</textarea></div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeModal()">Annulla</button>
+    <button class="btn btn-success" onclick="salvaPresenza('${id}')" id="btnSalva">💾 Aggiorna</button>
+  </div>`);
+  const c=cantieriData.find(x=>x.codComm===p.codiceCommessa);
+  if(c){document.getElementById('pCommId').value=c.id;selComm(c.id,c.codComm,c.title);}
+  else popolaComm('');
+}
+
+function eliminaPresenza(id){
+  const p=presenzeData.find(x=>x.id===id);
+  if(!p||!p.modificabile){toast('Non eliminabile','e');return;}
+  openModal(`
+  <div class="modal-header" style="background:#e74c3c"><h3>⚠️ Conferma eliminazione</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  <div class="modal-body">
+    <p>Eliminare la presenza del <strong>${fData(p.data)}</strong> — <strong>${f1(p.ore)}h</strong> su commessa <strong>${esc(p.codiceCommessa)||'—'}</strong>?</p>
+    <p style="color:#666;font-size:13px;margin-top:8px">Questa operazione non può essere annullata.</p>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeModal()">Annulla</button>
+    <button class="btn btn-danger" onclick="confElimina('${id}')">🗑️ Elimina</button>
+  </div>`);
+}
+
+async function confElimina(id){
+  try{
+    await gDelete(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items/${id}`);
+    presenzeData=presenzeData.filter(p=>p.id!==id);
+    presenzeCache=presenzeCache.filter(p=>p.id!==id);
+    presenzeAll=presenzeAll.filter(p=>p.id!==id);
+    toast('Presenza eliminata','s');closeModal();
+    const att=document.querySelector('.section.active')?.id?.replace('sec-','')||'dashboard';
+    showSection(att);
+  }catch(e){toast(e.message,'e');}
+}
+
+// ================================================
+// MODAL / TOAST
+// ================================================
+function openModal(html){
+  document.getElementById('modalBox').innerHTML=html;
+  document.getElementById('modalOverlay').classList.add('open');
+  document.body.style.overflow='hidden';
+}
+function closeModal(){
+  const ov = document.getElementById('modalOverlay');
+  ov.classList.remove('open');
+  ov.style.display = 'none';
+  document.body.style.overflow='';
+}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+
+function toast(msg,type='i',dur=3500){
+  const c=document.getElementById('toastC');
+  const d=document.createElement('div');
+  d.className=`toast t${type}`;
+  d.innerHTML=`<span>${{s:'✓',e:'✕',i:'ℹ'}[type]||'ℹ'}</span><span>${msg}</span>`;
+  c.appendChild(d);
+  setTimeout(()=>{d.style.opacity='0';d.style.transform='translateX(16px)';setTimeout(()=>d.remove(),280);},dur);
+}
+
+// ================================================
+// UTENTI (lista Presenze)
+// ================================================
+let utentiPresData = [];
+
+async function loadUtentiPres(){
+  if(!utentiPresListId) return;
+  const r = await gGet(`/sites/${siteIdPresenze}/lists/${utentiPresListId}/items?$expand=fields($select=Title,Email,Nome,Ruolo,Attivo,Note,SincGDL)&$select=id,fields&$top=500`);
+  utentiPresData = r.value.map(i=>({
+    id: i.id,
+    nome: i.fields.Nome || i.fields.Title || '',
+    email: (i.fields.Email||'').toLowerCase(),
+    ruolo: (i.fields.Ruolo||'operator').toLowerCase(),
+    attivo: i.fields.Attivo !== false,
+    note: i.fields.Note||'',
+    sincGdl: !!i.fields.SincGDL,
+  }));
+}
+
+function renderUtenti(){
+  const q = (document.getElementById('utentiSearch')?.value||'').toLowerCase();
+
+  // Unisce utenti GDL + utenti extra dalla lista Presenze
+  const emailGdl = new Set(utentiData.map(u=>u.email));
+  const gdl = utentiData.map(u=>({
+    id:null, nome:u.nome, email:u.email,
+    ruolo:u.ruolo||'operator', attivo:true, note:'', sincGdl:true
+  }));
+  const extra = utentiPresData.filter(u=>!emailGdl.has(u.email));
+  const tutti = [...gdl, ...extra];
+
+  const filtered = tutti.filter(u=>
+    !q || u.nome.toLowerCase().includes(q) ||
+    u.email.includes(q) || u.ruolo.includes(q)
+  );
+  const RUOLO_COL = {admin:'#e74c3c', supervisor:'#f39c12', operator:'#27ae60'};
+  document.getElementById('utentiTbody').innerHTML = filtered.map(u=>`
+    <tr style="${!u.attivo?'opacity:0.5':''}">
+      <td><strong>${esc(u.nome)}</strong></td>
+      <td style="font-size:12px">${u.email}</td>
+      <td><span style="background:${RUOLO_COL[u.ruolo]||'#95a5a6'};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px">${u.ruolo}</span></td>
+      <td>${u.attivo?'<span style="color:#27ae60">✅ Attivo</span>':'<span style="color:#e74c3c">❌ Disattivo</span>'}</td>
+      <td>${u.sincGdl?'<span title="Sincronizzato dal GDL" style="color:#3498db">🔗 GDL</span>':'<span style="color:#888">✏️ Locale</span>'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-secondary small-btn" onclick="utenteModale('${u.id}')">✏️</button>
+        ${!u.sincGdl?`<button class="btn small-btn" style="background:#e74c3c;color:#fff" onclick="utenteElimina('${u.id}','${esc(u.nome)}')">🗑️</button>`:''}
+      </td>
+    </tr>`).join('');
+  document.getElementById('utentiEmpty').style.display = filtered.length?'none':'block';
+}
+
+const RUOLO_LABEL = {operator:'👤 Operatore', supervisor:'👁 Supervisore', admin:'🛡️ Admin'};
+const RUOLO_DESC  = {operator:'Può inserire e vedere solo le proprie presenze', supervisor:'Può vedere le presenze di tutto il team', admin:'Accesso completo: utenti, commesse, tutte le presenze'};
+
+function utenteModale(id){
+  const u = id ? utentiPresData.find(x=>x.id===id) : null;
+  const isNew = !u;
+  const ruoloCorrente = u?.ruolo||'operator';
+
+  document.getElementById('modalBox').innerHTML = `
+    <div style="padding:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #f0f0f0">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:48px;height:48px;border-radius:50%;background:#3498db;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">👤</div>
+          <div>
+            <h3 style="margin:0;font-size:18px;color:#2c3e50">${isNew?'Nuovo utente':'Modifica utente'}</h3>
+            <p style="margin:4px 0 0;font-size:12px;color:#888">${isNew?'Aggiungi un utente non presente nel GDL':'Modifica i dati dell&#39;utente'}</p>
+          </div>
+        </div>
+        <button onclick="closeModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999;padding:4px 8px;border-radius:6px;line-height:1" title="Chiudi">✕</button>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;padding:0 2px">
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">NOME COMPLETO *</label>
+          <input type="text" id="uNome" value="${esc(u?.nome||'')}" placeholder="Es. Mario Rossi"
+            style="width:100%;padding:10px 12px;border:2px solid #e0e0e0;border-radius:8px;font-size:14px;box-sizing:border-box;outline:none"
+            onfocus="this.style.borderColor='#3498db'" onblur="this.style.borderColor='#e0e0e0'">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">EMAIL *</label>
+          <input type="email" id="uEmail" value="${u?.email||''}" placeholder="mario.rossi@akhet.it" ${u?.sincGdl?'readonly':''} class="modal-input" style="background:${u?.sincGdl?'#f8f9fa':'#fff'}">
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:8px">RUOLO</label>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px" id="ruoloGrid">
+          ${['operator','supervisor','admin'].map(r=>`
+            <div onclick="selRuolo('${r}')" id="ruolo_${r}" style="padding:10px;border:2px solid ${ruoloCorrente===r?'#3498db':'#e0e0e0'};border-radius:8px;cursor:pointer;background:${ruoloCorrente===r?'#ebf5fb':'#fff'};text-align:center;transition:all 0.15s">
+              <div style="font-size:18px;margin-bottom:4px">${r==='operator'?'👤':r==='supervisor'?'👁':'🛡️'}</div>
+              <div style="font-size:12px;font-weight:600;color:#2c3e50">${r}</div>
+              <div style="font-size:10px;color:#888;margin-top:2px;line-height:1.3">${RUOLO_DESC[r]}</div>
+            </div>`).join('')}
+        </div>
+        <input type="hidden" id="uRuolo" value="${ruoloCorrente}">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">STATO</label>
+          <div style="display:flex;gap:8px">
+            <button type="button" id="statoAttivo" onclick="selStato(true)"
+              style="flex:1;padding:9px;border:2px solid ${(u?.attivo!==false)?'#27ae60':'#e0e0e0'};border-radius:8px;background:${(u?.attivo!==false)?'#eafaf1':'#fff'};font-size:13px;cursor:pointer">
+              ✅ Attivo
+            </button>
+            <button type="button" id="statoDisattivo" onclick="selStato(false)"
+              style="flex:1;padding:9px;border:2px solid ${u?.attivo===false?'#e74c3c':'#e0e0e0'};border-radius:8px;background:${u?.attivo===false?'#fdf0ed':'#fff'};font-size:13px;cursor:pointer">
+              ❌ Disattivo
+            </button>
+          </div>
+          <input type="hidden" id="uAttivo" value="${(u?.attivo!==false)?'true':'false'}">
+        </div>
+        <div>
+          <label style="font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px">NOTE</label>
+          <input type="text" id="uNote" value="${esc(u?.note||'')}" placeholder="Opzionale"
+            style="width:100%;padding:10px 12px;border:2px solid #e0e0e0;border-radius:8px;font-size:14px;box-sizing:border-box;outline:none"
+            onfocus="this.style.borderColor='#3498db'" onblur="this.style.borderColor='#e0e0e0'">
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-secondary" onclick="closeModal()">Annulla</button>
+        <button class="btn btn-success" id="btnSalvaUtente" onclick="utenteSalva('${id||''}')">
+          ${isNew?'➕ Aggiungi utente':'💾 Salva modifiche'}
+        </button>
+      </div>
+    </div>`;
+  document.getElementById('modalOverlay').classList.add('open'); document.getElementById('modalOverlay').style.display='flex';
+}
+
+function selRuolo(r){
+  document.getElementById('uRuolo').value = r;
+  ['operator','supervisor','admin'].forEach(x=>{
+    const el = document.getElementById('ruolo_'+x);
+    el.style.borderColor = x===r?'#3498db':'#e0e0e0';
+    el.style.background   = x===r?'#ebf5fb':'#fff';
+  });
+}
+
+function selStato(attivo){
+  document.getElementById('uAttivo').value = attivo?'true':'false';
+  document.getElementById('statoAttivo').style.borderColor   = attivo?'#27ae60':'#e0e0e0';
+  document.getElementById('statoAttivo').style.background    = attivo?'#eafaf1':'#fff';
+  document.getElementById('statoDisattivo').style.borderColor= attivo?'#e0e0e0':'#e74c3c';
+  document.getElementById('statoDisattivo').style.background = attivo?'#fff':'#fdf0ed';
+}
+
+async function utenteSalva(id){
+  const btn   = document.getElementById('btnSalvaUtente');
+  const nome  = document.getElementById('uNome').value.trim();
+  const email = document.getElementById('uEmail').value.trim().toLowerCase();
+  const ruolo = document.getElementById('uRuolo').value;
+  const attivo= document.getElementById('uAttivo').value === 'true';
+  const note  = document.getElementById('uNote').value.trim();
+  if(!nome||!email){showToast('Nome ed email sono obbligatori','warn');return;}
+
+  btn.disabled=true; btn.textContent='⏳ Salvataggio...';
+  const fields = {Title:nome, Nome:nome, Email:email, Ruolo:ruolo, Attivo:attivo, Note:note};
+  try{
+    if(id){
+      await gPatch(`/sites/${siteIdPresenze}/lists/${utentiPresListId}/items/${id}/fields`, fields);
+      // Aggiorna in cache locale immediatamente
+      const idx = utentiPresData.findIndex(x=>x.id===id);
+      if(idx>=0) utentiPresData[idx]={...utentiPresData[idx],nome,email,ruolo,attivo,note};
+      showToast('✅ Utente aggiornato');
+    } else {
+      const res = await gPost(`/sites/${siteIdPresenze}/lists/${utentiPresListId}/items`,{fields});
+      const newId = res.id || String(Date.now());
+      // Aggiunge in cache locale immediatamente
+      utentiPresData.push({id:newId,nome,email,ruolo,attivo,note,sincGdl:false});
+      showToast('✅ Utente aggiunto');
+    }
+    closeModal();
+    renderUtenti();
+  }catch(e){
+    btn.disabled=false; btn.textContent=id?'💾 Salva modifiche':'➕ Aggiungi utente';
+    showToast('❌ '+e.message,'error');
+  }
+}
+
+async function utenteElimina(id, nome){
+  if(!confirm(`Eliminare l'utente "${nome}"?`)) return;
+  try{
+    await gDelete(`/sites/${siteIdPresenze}/lists/${utentiPresListId}/items/${id}`);
+    // Rimuovi dalla cache locale immediatamente
+    utentiPresData = utentiPresData.filter(u=>u.id!==id);
+    showToast('🗑️ Utente eliminato');
+    renderUtenti();
+  }catch(e){showToast('❌ '+e.message,'error');}
+}
+
+// ================================================
+// COMMESSE (lista Presenze)
+// ================================================
+async function loadCommessePres(){
+  if(!commesseListId) return;
+  const r = await gGet(`/sites/${siteIdPresenze}/lists/${commesseListId}/items?$expand=fields($select=Title,CodiceCommessa,Descrizione,Committente,Tipo,Attiva,SincGDL,Note)&$select=id,fields&$top=1000`);
+  commesseData = r.value.map(i=>({
+    id: i.id,
+    codice: i.fields.CodiceCommessa||i.fields.Title||'',
+    descrizione: i.fields.Descrizione||'',
+    committente: i.fields.Committente||'',
+    tipo: (i.fields.TipoCommessa||i.fields.Tipo||'cantiere').toLowerCase(),
+    attiva: i.fields.Attiva!==false,
+    sincGdl: !!i.fields.SincGDL,
+    note: i.fields.Note||'',
+  }));
+}
+
+function renderCommesse(){
+  const q=(document.getElementById('commSearch')?.value||'').toLowerCase();
+  const isAdm=currentRole==='admin';
+  if(isAdm) document.getElementById('btnNuovaCommessa').style.display='';
+
+  // Unisce cantieri GDL + commesse extra dalla lista Presenze
+  const codiciGdl = new Set(cantieriData.map(c=>c.codComm||''));
+  const gdl = cantieriData.map(c=>({
+    id:null, codice:c.codComm||'', descrizione:c.title||'',
+    committente:'', tipo:'cantiere', attiva:true, sincGdl:true, note:''
+  }));
+  // Aggiunge solo le commesse locali che NON esistono già nel GDL
+  const extra = commesseData.filter(c=>!codiciGdl.has(c.codice));
+  const lista = [...gdl, ...extra];
+
+  const filtered = lista.filter(c=>
+    !q || c.codice.toLowerCase().includes(q) ||
+    c.descrizione.toLowerCase().includes(q) ||
+    c.committente.toLowerCase().includes(q)
+  );
+
+  // Ore mese per commessa dalla cache
+  const oreComm={};
+  presenzeAll.forEach(p=>{oreComm[p.codiceCommessa]=(oreComm[p.codiceCommessa]||0)+p.ore;});
+
+  const TIPO_COL={cantiere:'#27ae60',ufficio:'#2980b9',amministrazione:'#8e44ad',formazione:'#f39c12',altro:'#95a5a6'};
+  document.getElementById('commTbody').innerHTML = filtered.map(c=>`
+    <tr style="${!c.attiva?'opacity:0.5':''}">
+      <td><strong>${esc(c.codice)}</strong></td>
+      <td>${esc(c.descrizione)}</td>
+      <td style="font-size:12px;color:#666">${esc(c.committente)}</td>
+      <td><span style="background:${TIPO_COL[c.tipo]||'#95a5a6'};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px">${c.tipo}</span></td>
+      <td style="font-family:'Courier New',monospace;font-weight:700">${f1(oreComm[c.codice]||0)}h</td>
+      <td style="white-space:nowrap">
+        ${c.sincGdl?'<span style="color:#3498db;font-size:11px">🔗 GDL</span>':''}
+        ${isAdm&&c.id?`<button class="btn btn-secondary small-btn" onclick="commessaModale('${c.id}')">✏️</button>`:''}
+        ${isAdm&&c.id&&!c.sincGdl?`<button class="btn small-btn" style="background:#e74c3c;color:#fff" onclick="commessaElimina('${c.id}','${esc(c.codice)}')">🗑️</button>`:''}
+      </td>
+    </tr>`).join('');
+  document.getElementById('commEmpty').style.display = filtered.length?'none':'block';
+}
+
+function commessaModale(id){
+  const c = id ? commesseData.find(x=>x.id===id) : null;
+  document.getElementById('modalBox').innerHTML = `
+    <h3>${c?'Modifica commessa':'Nuova commessa'}</h3>
+    <div class="form-group"><label>Codice *</label>
+      <input type="text" id="cCodice" value="${esc(c?.codice||'')}" placeholder="es. 300_001_VDA_Prog" ${c?.sincGdl?'readonly':''}></div>
+    <div class="form-group"><label>Descrizione *</label>
+      <input type="text" id="cDesc" value="${esc(c?.descrizione||'')}" placeholder="Nome del progetto"></div>
+    <div class="form-group"><label>Committente</label>
+      <input type="text" id="cComm" value="${esc(c?.committente||'')}"></div>
+    <div class="form-group"><label>Tipo</label>
+      <select id="cTipo">
+        ${['cantiere','ufficio','amministrazione','formazione','altro'].map(t=>`<option value="${t}" ${(c?.tipo||'cantiere')===t?'selected':''}>${t}</option>`).join('')}
+      </select></div>
+    <div class="form-group"><label>Stato</label>
+      <select id="cAttiva">
+        <option value="true" ${(c?.attiva!==false)?'selected':''}>Attiva</option>
+        <option value="false" ${c?.attiva===false?'selected':''}>Disattiva</option>
+      </select></div>
+    <div class="form-group"><label>Note</label>
+      <input type="text" id="cNote" value="${esc(c?.note||'')}"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
+      <button class="btn btn-secondary" onclick="closeModal()">Annulla</button>
+      <button class="btn btn-success" onclick="commessaSalva('${id||''}')">💾 Salva</button>
+    </div>`;
+  document.getElementById('modalOverlay').classList.add('open'); document.getElementById('modalOverlay').style.display='flex';
+}
+
+async function commessaSalva(id){
+  const codice = document.getElementById('cCodice').value.trim();
+  const desc   = document.getElementById('cDesc').value.trim();
+  const comm   = document.getElementById('cComm').value.trim();
+  const tipo   = document.getElementById('cTipo').value;
+  const attiva = document.getElementById('cAttiva').value==='true';
+  const note   = document.getElementById('cNote').value.trim();
+  if(!codice||!desc){showToast('Codice e descrizione obbligatori','warn');return;}
+  const fields={Title:desc,CodiceCommessa:codice,Descrizione:desc,Committente:comm,TipoCommessa:tipo,Attiva:attiva,Note:note,SincGDL:false};
+  try{
+    if(id){
+      await gPatch(`/sites/${siteIdPresenze}/lists/${commesseListId}/items/${id}/fields`,fields);
+      showToast('✅ Commessa aggiornata');
+    } else {
+      await gPost(`/sites/${siteIdPresenze}/lists/${commesseListId}/items`,{fields});
+      showToast('✅ Commessa aggiunta');
+    }
+    closeModal();
+    await loadCommessePres(); renderCommesse();
+  }catch(e){showToast('❌ '+e.message,'error');}
+}
+
+async function commessaElimina(id,codice){
+  if(!confirm(`Eliminare la commessa ${codice}?`)) return;
+  try{
+    await gDelete(`/sites/${siteIdPresenze}/lists/${commesseListId}/items/${id}`);
+    showToast('🗑️ Commessa eliminata');
+    await loadCommessePres(); renderCommesse();
+  }catch(e){showToast('❌ '+e.message,'error');}
+}
+
+// ================================================
+// ADMIN
+// ================================================
+let adminPresenze = [];   // tutte le presenze caricate
+let adminFiltrate = [];   // dopo filtro tipo
+
+function adminCarica(){
+  const mese   = document.getElementById('adminFiltroMese').value;
+  const utente = document.getElementById('adminFiltroUtente').value;
+  document.getElementById('adminEmpty').style.display = 'none';
+
+  // Usa la cache già caricata — nessuna chiamata API
+  let tutte = [...presenzeCache];
+
+  if(utente) tutte = tutte.filter(p => p.utenteEmail === utente.toLowerCase());
+
+  if(mese){
+    const [anno, m] = mese.split('-');
+    const dal = `${mese}-01`;
+    const al  = `${mese}-${String(new Date(+anno,+m,0).getDate()).padStart(2,'0')}`;
+    tutte = tutte.filter(p => p.data >= dal && p.data <= al);
+  }
+
+  adminPresenze = tutte.sort((a,b) => a.data < b.data ? -1 : 1);
+  adminRenderDashboard();
+  adminFiltra();
+}
+
+function adminFiltra(){
+  const tipo = document.getElementById('adminFiltroTipo').value;
+  adminFiltrate = tipo ? adminPresenze.filter(p=>p.tipo===tipo) : [...adminPresenze];
+  adminRenderTabella();
+}
+
+// Wrapper per modifica da admin (riusa apriModalPresenza con dati precaricati)
+function apriModalModifica(p, onSave){
+  // Apri modal con i dati della presenza e salva con callback
+  apriModalPresenza(p.data, p, onSave);
+}
+
+function adminRenderTabella(){
+  const tbody = document.getElementById('adminTbody');
+  const empty = document.getElementById('adminEmpty');
+  document.getElementById('adminContatore').textContent = `${adminFiltrate.length} presenze`;
+
+  if(!adminFiltrate.length){
+    tbody.innerHTML=''; empty.style.display='block'; return;
+  }
+  empty.style.display='none';
+
+  const TIPO_COLOR = {cantiere:'#27ae60',ufficio:'#2980b9',ferie:'#f39c12',
+                      permesso:'#e67e22',malattia:'#e74c3c',formazione:'#8e44ad'};
+
+  tbody.innerHTML = adminFiltrate.map(p=>{
+    const col = TIPO_COLOR[p.tipo]||'#95a5a6';
+    const puoModif = p.modificabile !== false;
+    return `<tr>
+      <td>${p.data}</td>
+      <td><strong>${p.utenteName||p.utenteEmail}</strong><br><small style="color:#888">${p.utenteEmail}</small></td>
+      <td style="font-size:12px">${p.commessa||p.nomeCantiere||'—'}</td>
+      <td><span style="background:${col};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px">${p.tipo}</span></td>
+      <td style="font-weight:700">${p.ore}h</td>
+      <td><span style="font-size:11px;color:#888">${p.fonte||'manuale'}</span></td>
+      <td style="white-space:nowrap">
+        ${puoModif?`<button class="btn btn-secondary small-btn" onclick="adminModifica('${p.id}')">✏️</button>`:''}
+        <button class="btn small-btn" style="background:#e74c3c;color:#fff" onclick="adminElimina('${p.id}','${p.data}','${(p.utenteName||'').replace(/'/g,'\'')}')">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function adminRenderDashboard(){
+  // Raggruppa per utente
+  const perUtente = {};
+  for(const p of adminPresenze){
+    const k = p.utenteName || p.utenteEmail;
+    if(!perUtente[k]) perUtente[k]={nome:k,email:p.utenteEmail,tot:0,cantiere:0,ufficio:0,assenze:0};
+    perUtente[k].tot += p.ore;
+    if(p.tipo==='cantiere')     perUtente[k].cantiere += p.ore;
+    else if(p.tipo==='ufficio') perUtente[k].ufficio  += p.ore;
+    else                        perUtente[k].assenze  += p.ore;
+  }
+
+  const utenti = Object.values(perUtente).sort((a,b)=>b.tot-a.tot);
+  if(!utenti.length){ document.getElementById('adminDashboard').innerHTML=''; return; }
+
+  const maxOre = Math.max(...utenti.map(u=>u.tot));
+  const html = `
+    <div style="background:#f8f9fa;border-radius:10px;padding:15px">
+      <h4 style="margin:0 0 12px;color:#2c3e50">📊 Riepilogo ore per utente</h4>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">
+        ${utenti.map(u=>`
+          <div style="background:#fff;border-radius:8px;padding:12px;border:1px solid #e0e0e0">
+            <div style="font-weight:700;margin-bottom:6px">${u.nome}</div>
+            <div style="display:flex;gap:8px;font-size:12px;margin-bottom:8px">
+              <span style="color:#27ae60">🟢 ${u.cantiere}h</span>
+              <span style="color:#2980b9">🔵 ${u.ufficio}h</span>
+              <span style="color:#f39c12">🟡 ${u.assenze}h</span>
+              <strong style="margin-left:auto">${u.tot}h tot</strong>
+            </div>
+            <div style="background:#eee;border-radius:4px;height:6px">
+              <div style="background:#3498db;border-radius:4px;height:6px;width:${Math.round(u.tot/maxOre*100)}%"></div>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    </div>`;
+  document.getElementById('adminDashboard').innerHTML = html;
+}
+
+async function adminModifica(id){
+  const p = adminPresenze.find(x=>x.id===id);
+  if(!p) return;
+  apriModalModifica(p, async (campi)=>{
+    await gPatch(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items/${id}/fields`, campi);
+    showToast('✅ Presenza aggiornata');
+    adminCarica();
+  });
+}
+
+async function adminElimina(id, data, nome){
+  if(!confirm(`Eliminare la presenza del ${data} di ${nome}?`)) return;
+  try {
+    await gDelete(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items/${id}`);
+    // Aggiorna cache globale
+    presenzeCache = presenzeCache.filter(p => p.id !== id);
+    showToast('🗑️ Presenza eliminata');
+    adminCarica();
+  } catch(e){ showToast('❌ Errore eliminazione: '+e.message,'error'); }
+}
+
+function adminExportExcel(){
+  if(!adminFiltrate.length){ showToast('Nessun dato da esportare','warn'); return; }
+
+  // Genera CSV con BOM UTF-8 per Excel
+  const cols = ['Data','Utente','Email','Commessa','Tipo','Ore','Fonte'];
+  const rows = adminFiltrate.map(p=>[
+    p.data,
+    p.utenteName||'',
+    p.utenteEmail||'',
+    p.commessa||p.nomeCantiere||'',
+    p.tipo||'',
+    p.ore,
+    p.fonte||'manuale'
+  ]);
+
+  const csv = '﻿' + [cols, ...rows].map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+
+  const mese   = document.getElementById('adminFiltroMese').value || 'tutti';
+  const utente = document.getElementById('adminFiltroUtente').value.split('@')[0] || 'tutti';
+  a.href = url; a.download = `presenze_${utente}_${mese}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  showToast('⬇️ Export avviato');
+}
+
+function adminInitFiltroMese(){
+  // Imposta il mese corrente come default
+  const oggi = new Date();
+  const mm = String(oggi.getMonth()+1).padStart(2,'0');
+  document.getElementById('adminFiltroMese').value = `${oggi.getFullYear()}-${mm}`;
+}
+
+function adminPopulaUtenti(){
+  const sel = document.getElementById('adminFiltroUtente');
+  sel.innerHTML = '<option value="">— Tutti —</option>';
+  // Usa la lista utenti già caricata
+  utentiData.forEach(u=>{
+    const opt = document.createElement('option');
+    opt.value = u.email; opt.textContent = u.nome;
+    sel.appendChild(opt);
+  });
+}
+
+// ================================================
+// AUTO-LOGIN sessione attiva
+// ================================================
+window.addEventListener('load',async()=>{
+  try{
+    await msalInstance.initialize();
+    const accs=msalInstance.getAllAccounts();
+    if(accs.length>0){
+      currentUser=accs[0];
+      const tr=await msalInstance.acquireTokenSilent({scopes:loginRequest.scopes,account:currentUser});
+      accessToken=tr.accessToken;
+      await initApp();
+    }
+  }catch(e){console.log('Nessuna sessione attiva.');}
+});
+</script>
+</body>
+</html>
