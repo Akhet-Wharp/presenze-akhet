@@ -484,7 +484,7 @@ const msalConfig = {
   auth: {
     clientId: "1f1379c3-6946-4ef1-8977-35d32435d409",
     authority: "https://login.microsoftonline.com/a1b7202e-cd9a-4043-98bf-ec0055b06878",
-    redirectUri: window.location.origin + "/blank.html",
+    redirectUri: window.location.origin + window.location.pathname + "blank.html",
     knownAuthorities: ["login.microsoftonline.com"]
   },
   cache: { cacheLocation:"sessionStorage", storeAuthStateInCookie:false }
@@ -543,7 +543,7 @@ async function loginMicrosoft(){
   const btn=document.getElementById('btnLogin'),err=document.getElementById('loginError');
   btn.disabled=true;btn.textContent='⏳ Connessione...';err.style.display='none';
   try{
-    const lr=await msalInstance.loginPopup({...loginRequest, redirectUri: window.location.origin + "/blank.html"});
+    const lr=await msalInstance.loginPopup({...loginRequest, redirectUri: window.location.origin + window.location.pathname + "blank.html"});
     currentUser=lr.account;
     const tr=await msalInstance.acquireTokenSilent({scopes:loginRequest.scopes,account:currentUser});
     accessToken=tr.accessToken;
