@@ -214,7 +214,7 @@ textarea{min-height:80px;font-family:inherit;resize:vertical}
     🔄 Cambia Account
   </button>
   <p style="margin-top:20px;font-size:12px;color:#999">Usa il tuo account aziendale Microsoft 365</p>
-  <div id="loginError" class="error" style="display:none;margin-top:20px"></div>
+  <div id="loginError" class="error" style="display:none;margin-top:20px;overflow-wrap:anywhere;text-align:left;font-size:13px"></div>
 </div>
 
 <!-- LOADING SCREEN -->
@@ -571,30 +571,10 @@ async function refreshToken(){
 // ================================================
 // GRAPH API
 // ================================================
-async function gDelete(url){
-  await refreshToken();
-  const r=await fetch(`https://graph.microsoft.com/v1.0${url}`,{
-    method:'DELETE',
-    headers:{Authorization:`Bearer ${accessToken}`}
-  });
-  if(!r.ok && r.status!==204) throw new Error(`DELETE ${url}: ${r.status}`);
-}
-
-async function gPatch(url,data){
-  await refreshToken();
-  const r=await fetch(`https://graph.microsoft.com/v1.0${url}`,{
-    method:'PATCH',
-    headers:{Authorization:`Bearer ${accessToken}`,'Content-Type':'application/json'},
-    body:JSON.stringify(data)
-  });
-  if(!r.ok) throw new Error(`PATCH ${url}: ${r.status}`);
-  return r.json();
-}
-
 async function gGet(url){
   await refreshToken();
   const r=await fetch(`https://graph.microsoft.com/v1.0${url}`,{headers:{Authorization:`Bearer ${accessToken}`}});
-  if(!r.ok)throw new Error(`Graph ${url}: ${r.status}`);
+  if(!r.ok){let m='';try{m=(await r.json())?.error?.message||'';}catch(_){}throw new Error(`Graph ${url}: ${r.status}${m?' — '+m:''}`);}
   return r.json();
 }
 async function gPost(url,body){
@@ -680,7 +660,8 @@ async function initApp(){
   }catch(e){
     lsHide();
     // Rimostra login con errore
-    document.getElementById('loginScreen').style.display='flex';
+    document.getElementById('loginScreen').style.display='block';
+    const bL=document.getElementById('btnLogin');if(bL){bL.disabled=false;bL.textContent='🔐 Accedi con Microsoft 365';}
     const errEl=document.getElementById('loginError');
     if(errEl){errEl.textContent=`Errore di connessione: ${e.message}`;errEl.style.display='block';}
     console.error(e);
@@ -1282,8 +1263,10 @@ async function salvaPresenza(editId=null){
     Title:data,DataPresenza:data,Ore:ore,TipoPresenza:tipo,
     CodiceCommessa:cod,UtenteEmail:currentEmail,UtenteName:currentUser.name||currentEmail,
     Fonte:'manuale',Modificabile:true,
-    NomeCantiere:cantiere?.title||'',DescrizioneAttivita:descr,Note:note,
+    NomeCantiere:cantiere?.title||'',DescrizioneAttivit_x00e0_:descr,Note:note,
   };
+  // In modifica non riassegnare utente/fonte: resta quella originale (anche se modifica un admin)
+  if(editId){delete fields.UtenteEmail;delete fields.UtenteName;delete fields.Fonte;delete fields.Modificabile;}
   const btn=document.getElementById('btnSalva');
   btn.disabled=true;btn.textContent='⏳ Salvataggio...';
   msgM.innerHTML='<div class="info">📤 Salvataggio su SharePoint...</div>';
@@ -1292,8 +1275,9 @@ async function salvaPresenza(editId=null){
       await gPatch(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items/${editId}/fields`,fields);
       const idx=presenzeData.findIndex(p=>p.id===editId);
       if(idx>=0)Object.assign(presenzeData[idx],{data,ore,tipo,codiceCommessa:cod,nomeCantiere:cantiere?.title||'',descrizione:descr,note});
-      presenzeCache=presenzeCache.map(p=>p.id===editId?{...p,...{data,ore,tipo,codiceCommessa:cod}}:p);
-      presenzeAll=presenzeAll.map(p=>p.id===editId?{...p,...{data,ore,tipo,codiceCommessa:cod}}:p);
+      const agg={data,ore,tipo,codiceCommessa:cod,nomeCantiere:cantiere?.title||'',descrizione:descr,note};
+      presenzeCache=presenzeCache.map(p=>p.id===editId?{...p,...agg}:p);
+      presenzeAll=presenzeAll.map(p=>p.id===editId?{...p,...agg}:p);
       toast('Presenza aggiornata ✓','s');
     }else{
       const res=await gPost(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items`,{fields});
@@ -1337,7 +1321,7 @@ function vediPresenza(id){
 }
 
 function modificaPresenza(id){
-  const p=presenzeData.find(x=>x.id===id);
+  const p=presenzeData.find(x=>x.id===id)||presenzeCache.find(x=>x.id===id);
   if(!p||!p.modificabile){toast('Presenza non modificabile','e');return;}
   const optsT=TIPI.map(t=>`<option value="${t.v}" ${t.v===p.tipo?'selected':''}>${t.l}</option>`).join('');
   openModal(`
@@ -1429,6 +1413,8 @@ function toast(msg,type='i',dur=3500){
   c.appendChild(d);
   setTimeout(()=>{d.style.opacity='0';d.style.transform='translateX(16px)';setTimeout(()=>d.remove(),280);},dur);
 }
+
+function showToast(msg,type){toast(msg,{error:'e',warn:'e',info:'i'}[type]||'s');}
 
 // ================================================
 // UTENTI (lista Presenze)
@@ -1778,7 +1764,7 @@ function adminFiltra(){
 // Wrapper per modifica da admin (riusa apriModalPresenza con dati precaricati)
 function apriModalModifica(p, onSave){
   // Apri modal con i dati della presenza e salva con callback
-  apriModalPresenza(p.data, p, onSave);
+  modificaPresenza(p.id);
 }
 
 function adminRenderTabella(){
