@@ -280,9 +280,6 @@ textarea{min-height:80px;font-family:inherit;resize:vertical}
         <button class="btn btn-primary small-btn" onclick="showSection('presenze')" style="margin-top:10px">Vedi tutte →</button>
       </div>
     </div>
-    <div style="text-align:right;margin-top:20px">
-      <button class="btn btn-success" onclick="apriModalPresenza()">➕ Inserisci presenza</button>
-    </div>
   </div>
 
   <!-- ========== PRESENZE ========== -->
@@ -902,7 +899,7 @@ function renderCalMini(mp){
     else if(tipi.includes('cantiere'))cls+=' has-cant';
     else if(tipi.some(t=>['ufficio','trasferta','formazione','riunione'].includes(t)))cls+=' has-uff';
     else if(tipi.some(t=>['ferie','malattia','permesso'].includes(t)))cls+=' has-ass';
-    html+=`<div class="${cls}" onclick="${pDay.length?`showSection('presenze')`:`apriModalPresenza('${ds}')`}" style="padding:5px">
+    html+=`<div class="${cls}" ${pDay.length?`onclick="showSection('presenze')"`:''} style="padding:5px;${pDay.length?'':'cursor:default'}">
       <div class="cal-day-num">${d}</div>
       ${ore?`<div style="font-size:10px;font-family:'Courier New',monospace;color:#666">${f1(ore)}h</div>`:''}
     </div>`;
@@ -932,7 +929,10 @@ function renderUltime(list){
 function renderPresenze(){
   const mp=mie().sort((a,b)=>b.data.localeCompare(a.data));
   const tot=calcTot(mp);
-  document.getElementById('presStats').innerHTML=`
+  const statsEl=document.getElementById('presStats');
+  // Riepilogo ore nascosto per gli utenti normali (operator)
+  statsEl.style.display=currentRole==='operator'?'none':'';
+  statsEl.innerHTML=currentRole==='operator'?'':`
     <div class="stat-box green"><div class="stat-num">${f1(tot.cant)}h</div><div class="stat-lbl">🏗️ Cantiere</div></div>
     <div class="stat-box"><div class="stat-num">${f1(tot.uff)}h</div><div class="stat-lbl">🏢 Ufficio/Altro</div></div>
     <div class="stat-box orange"><div class="stat-num">${f1(tot.ass)}h</div><div class="stat-lbl">🏖️ Assenze</div></div>
@@ -1283,9 +1283,10 @@ async function salvaPresenza(editId=null){
       const res=await gPost(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items`,{fields});
       const nuova={id:res.id,data,ore,tipo,utenteEmail:currentEmail,utenteName:currentUser.name||'',
         codiceCommessa:cod,fonte:'manuale',modificabile:true,nomeCantiere:cantiere?.title||'',descrizione:descr,note};
-      presenzeCache.push(nuova);presenzeData.push(nuova);presenzeAll.push(nuova);
+      presenzeCache.push(nuova);
       toast('Presenza salvata ✓','s');
     }
+    loadPresenze();
     closeModal();
     const att=document.querySelector('.section.active')?.id?.replace('sec-','')||'dashboard';
     showSection(att);
@@ -1394,13 +1395,15 @@ async function confElimina(id){
 // ================================================
 function openModal(html){
   document.getElementById('modalBox').innerHTML=html;
-  document.getElementById('modalOverlay').classList.add('open');
+  const ov=document.getElementById('modalOverlay');
+  ov.style.display='';
+  ov.classList.add('open');
   document.body.style.overflow='hidden';
 }
 function closeModal(){
   const ov = document.getElementById('modalOverlay');
   ov.classList.remove('open');
-  ov.style.display = 'none';
+  ov.style.display = '';
   document.body.style.overflow='';
 }
 document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
