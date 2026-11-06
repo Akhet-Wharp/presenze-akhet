@@ -827,7 +827,7 @@ const mappa=i=>({
   ore:parseFloat(i.fields.Ore||0),tipo:(i.fields.TipoPresenza||'ufficio').toLowerCase(),
   utenteEmail:(i.fields.UtenteEmail||'').toLowerCase(),utenteName:i.fields.UtenteName||'',
   codiceCommessa:i.fields.CodiceCommessa||'',
-  fonte:i.fields.Fonte||'manuale',modificabile:i.fields.Modificabile!==false,
+  fonte:i.fields.Fonte||'manuale',modificabile:i.fields.Modificabile!==false&&(i.fields.Fonte||'').toLowerCase()!=='gdl',
   idGiornale:i.fields.IdGiornale||null,nomeCantiere:i.fields.NomeCantiere||'',
   descrizione:i.fields.DescrizioneAttivit_x00e0_||'',note:i.fields.Note||'',
 });
@@ -848,6 +848,7 @@ async function aggiornaDaSharePoint(sezione){
     if(att===sezione){
       if(sezione==='admin')adminCarica();
       if(sezione==='team')renderTeam();
+      if(sezione==='commesse')renderCommesse();
     }
     showMsg(`✓ Aggiornato alle ${new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}`,'success');
   }catch(e){
@@ -924,7 +925,7 @@ function aggiornaHeader(){
 
 function showSection(name){
   // Mostra/nascondi navigatore mese
-  const noMese = ['admin','utenti','commesse','assegnazioni'];
+  const noMese = ['admin','utenti','assegnazioni'];
   document.getElementById('meseNav').style.display = noMese.includes(name) ? 'none' : '';
 
   if(name==='admin'){
@@ -950,7 +951,7 @@ function showSection(name){
   if(name==='presenze')renderPresenze();
   if(name==='calendario')renderCalendario();
   if(name==='team'){renderTeam();aggiornaDaSharePoint('team');}
-  if(name==='commesse')renderCommesse();
+  if(name==='commesse'){renderCommesse();aggiornaDaSharePoint('commesse');}
   if(name==='assegnazioni')renderAssegnazioni();
 }
 
@@ -1794,7 +1795,7 @@ function renderCommesse(){
   // Unisce cantieri GDL + commesse extra dalla lista Presenze
   const codiciGdl = new Set(cantieriData.map(c=>c.codComm||''));
   const gdl = cantieriData.map(c=>({
-    id:null, codice:c.codComm||'', descrizione:c.title||'',
+    id:null, codice:c.codComm||'', descrizione:c.title||'', gdlRow:true,
     committente:'', tipo:'cantiere', attiva:true, sincGdl:true, note:''
   }));
   // Aggiunge solo le commesse locali che NON esistono già nel GDL
@@ -1808,8 +1809,20 @@ function renderCommesse(){
   );
 
   // Ore mese per commessa dalla cache
-  const oreComm={};
-  presenzeAll.forEach(p=>{oreComm[p.codiceCommessa]=(oreComm[p.codiceCommessa]||0)+p.ore;});
+  // Ore del mese: per i cantieri GDL si abbina codice + nome cantiere,
+  // perché più cantieri possono avere lo stesso codice commessa
+  const oreComm={}, oreKey={}, oreSenzaNome={};
+  presenzeAll.forEach(p=>{
+    const cod=p.codiceCommessa||'';
+    oreComm[cod]=(oreComm[cod]||0)+p.ore;
+    if(p.nomeCantiere) oreKey[cod+'|'+p.nomeCantiere]=(oreKey[cod+'|'+p.nomeCantiere]||0)+p.ore;
+    else oreSenzaNome[cod]=(oreSenzaNome[cod]||0)+p.ore;
+  });
+  const nPerCodice={};
+  cantieriData.forEach(c=>{const k=c.codComm||'';nPerCodice[k]=(nPerCodice[k]||0)+1;});
+  const oreRiga=c=>c.gdlRow
+    ? (oreKey[c.codice+'|'+c.descrizione]||0)+(nPerCodice[c.codice]===1?(oreSenzaNome[c.codice]||0):0)
+    : (oreComm[c.codice]||0);
 
   const TIPO_COL={cantiere:'#27ae60',ufficio:'#2980b9',amministrazione:'#8e44ad',formazione:'#f39c12',altro:'#95a5a6'};
   document.getElementById('commTbody').innerHTML = filtered.map(c=>`
@@ -1818,7 +1831,7 @@ function renderCommesse(){
       <td>${esc(c.descrizione)}</td>
       <td style="font-size:12px;color:#666">${esc(c.committente)}</td>
       <td><span style="background:${TIPO_COL[c.tipo]||'#95a5a6'};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px">${c.tipo}</span></td>
-      <td style="font-family:'Courier New',monospace;font-weight:700">${f1(oreComm[c.codice]||0)}h</td>
+      <td style="font-family:'Courier New',monospace;font-weight:700">${f1(oreRiga(c))}h</td>
       <td style="white-space:nowrap">
         ${c.sincGdl?'<span style="color:#3498db;font-size:11px">🔗 GDL</span>':''}
         ${isAdm&&c.id?`<button class="btn btn-secondary small-btn" onclick="commessaModale('${c.id}')">✏️</button>`:''}
