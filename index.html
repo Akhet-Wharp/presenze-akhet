@@ -838,7 +838,7 @@ const mappa=i=>({
 // Graph applica a tutti la regola "ognuno legge solo i propri elementi" della lista Presenze;
 // l'API di SharePoint invece rispetta il permesso "Ignora comportamenti dell'elenco".
 // ================================================
-const SP_SCOPE = "https://akhet.sharepoint.com/AllSites.Write";
+const SP_SCOPE = "https://akhet.sharepoint.com/AllSites.FullControl"; // serve per il permesso "Ignora comportamenti dell'elenco"
 let spToken = null, spTokenExp = 0;
 function usaApiSharePoint(){ return currentRole !== 'operator'; }
 
