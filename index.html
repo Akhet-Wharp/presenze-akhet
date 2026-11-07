@@ -562,8 +562,9 @@ async function loginMicrosoft(){
   const btn=document.getElementById('btnLogin'),err=document.getElementById('loginError');
   btn.disabled=true;btn.textContent='⏳ Connessione...';err.style.display='none';
   try{
-    const lr=await msalInstance.loginPopup({...loginRequest, redirectUri: window.location.origin + window.location.pathname + "blank.html"});
+    const lr=await msalInstance.loginPopup({...loginRequest, prompt:'select_account', redirectUri: window.location.origin + window.location.pathname + "blank.html"});
     currentUser=lr.account;
+    try{localStorage.setItem('presenze_account',lr.account.homeAccountId);}catch(_){}
     const tr=await msalInstance.acquireTokenSilent({scopes:loginRequest.scopes,account:currentUser});
     accessToken=tr.accessToken;
     await initApp();
@@ -2159,8 +2160,10 @@ window.addEventListener('load',async()=>{
   try{
     await msalInstance.initialize();
     const accs=msalInstance.getAllAccounts();
-    if(accs.length>0){
-      currentUser=accs[0];
+    let salvato=null;try{salvato=localStorage.getItem('presenze_account');}catch(_){}
+    const scelto=accs.find(a=>a.homeAccountId===salvato)||(accs.length===1?accs[0]:null);
+    if(scelto){
+      currentUser=scelto;
       const tr=await msalInstance.acquireTokenSilent({scopes:loginRequest.scopes,account:currentUser});
       accessToken=tr.accessToken;
       await initApp();
