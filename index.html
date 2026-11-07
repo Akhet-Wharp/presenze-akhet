@@ -833,6 +833,75 @@ const mappa=i=>({
 });
 
 // Carica TUTTE le presenze via Graph API con $select (solo campi necessari, più veloce di $expand)
+// ================================================
+// API REST di SharePoint (solo admin/supervisor)
+// Graph applica a tutti la regola "ognuno legge solo i propri elementi" della lista Presenze;
+// l'API di SharePoint invece rispetta il permesso "Ignora comportamenti dell'elenco".
+// ================================================
+const SP_SCOPE = "https://akhet.sharepoint.com/AllSites.Write";
+let spToken = null, spTokenExp = 0;
+function usaApiSharePoint(){ return currentRole !== 'operator'; }
+
+async function getSpToken(){
+  if(spToken && Date.now() < spTokenExp - 60000) return spToken;
+  let tr;
+  try{
+    tr = await msalInstance.acquireTokenSilent({scopes:[SP_SCOPE], account:currentUser});
+  }catch(e){
+    tr = await msalInstance.acquireTokenPopup({scopes:[SP_SCOPE], account:currentUser,
+      redirectUri: window.location.origin + window.location.pathname + "blank.html"});
+  }
+  spToken = tr.accessToken;
+  spTokenExp = tr.expiresOn ? new Date(tr.expiresOn).getTime() : Date.now() + 30*60000;
+  return spToken;
+}
+
+async function spFetch(path, opts={}){
+  const tok = await getSpToken();
+  const url = path.startsWith('http') ? path : `${SP_PRESENZE_URL}/_api${path}`;
+  const r = await fetch(url, {...opts, headers:{
+    Authorization:`Bearer ${tok}`,
+    Accept:'application/json;odata=nometadata',
+    'Content-Type':'application/json;odata=nometadata',
+    ...(opts.headers||{})
+  }});
+  if(!r.ok){
+    let m=''; try{ const j=await r.json(); m=j?.['odata.error']?.message?.value||j?.error?.message||''; }catch(_){}
+    throw new Error(`SharePoint ${r.status}${m?' — '+m:''}`);
+  }
+  return r.status===204 ? null : (r.headers.get('content-type')||'').includes('json') ? r.json() : null;
+}
+
+async function loadPresenzeCacheSP(){
+  const sel = 'Id,Title,DataPresenza,Ore,TipoPresenza,CodiceCommessa,UtenteEmail,UtenteName,Fonte,Modificabile,IdGiornale,NomeCantiere,DescrizioneAttivit_x00e0_,Note';
+  let url = `/web/lists(guid'${presenzeListId}')/items?$select=${sel}&$top=5000`;
+  let tutti = [];
+  while(url){
+    const d = await spFetch(url);
+    tutti = tutti.concat((d.value||[]).map(it => mappa({id:String(it.Id), fields:it})));
+    url = d['odata.nextLink'] || null;
+  }
+  presenzeCache = tutti;
+}
+
+// Scritture sulla lista Presenze: admin/supervisor via SharePoint, operatori via Graph
+async function presAggiorna(id, fields){
+  if(usaApiSharePoint()){
+    await spFetch(`/web/lists(guid'${presenzeListId}')/items(${id})`, {
+      method:'POST', headers:{'X-HTTP-Method':'MERGE','IF-MATCH':'*'}, body:JSON.stringify(fields)});
+  } else {
+    await gPatch(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items/${id}/fields`, fields);
+  }
+}
+async function presElimina(id){
+  if(usaApiSharePoint()){
+    await spFetch(`/web/lists(guid'${presenzeListId}')/items(${id})`, {
+      method:'POST', headers:{'X-HTTP-Method':'DELETE','IF-MATCH':'*'}});
+  } else {
+    await gDelete(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items/${id}`);
+  }
+}
+
 // Ricarica tutte le presenze da SharePoint (nuovi inserimenti di altri utenti e del GDL)
 let aggiornamentoInCorso=false;
 async function aggiornaDaSharePoint(sezione){
@@ -870,6 +939,13 @@ function dataLocale(v){
 }
 
 async function loadPresenzeCache(){
+  if(usaApiSharePoint()){
+    try{ await loadPresenzeCacheSP(); return; }
+    catch(e){
+      console.warn('API SharePoint non disponibile, uso Graph:', e);
+      toast('⚠️ Lettura completa non disponibile ('+e.message+'): potresti vedere solo parte delle presenze','e');
+    }
+  }
   // $select sui fields specifici evita di caricare tutti i metadati
   const fields = "fields/DataPresenza,fields/Ore,fields/TipoPresenza,fields/CodiceCommessa,fields/UtenteEmail,fields/UtenteName,fields/Fonte,fields/Modificabile,fields/IdGiornale,fields/NomeCantiere,fields/DescrizioneAttivit_x00e0_,fields/Note";
   let userFilter = '';
@@ -1430,7 +1506,7 @@ async function salvaPresenza(editId=null){
   msgM.innerHTML='<div class="info">📤 Salvataggio su SharePoint...</div>';
   try{
     if(editId){
-      await gPatch(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items/${editId}/fields`,fields);
+      await presAggiorna(editId,fields);
       const idx=presenzeData.findIndex(p=>p.id===editId);
       if(idx>=0)Object.assign(presenzeData[idx],{data,ore,tipo,codiceCommessa:cod,nomeCantiere:cantiere?.title||'',descrizione:descr,note});
       const agg={data,ore,tipo,codiceCommessa:cod,nomeCantiere:cantiere?.title||'',descrizione:descr,note};
@@ -1538,7 +1614,7 @@ function eliminaPresenza(id){
 
 async function confElimina(id){
   try{
-    await gDelete(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items/${id}`);
+    await presElimina(id);
     presenzeData=presenzeData.filter(p=>p.id!==id);
     presenzeCache=presenzeCache.filter(p=>p.id!==id);
     presenzeAll=presenzeAll.filter(p=>p.id!==id);
@@ -2014,7 +2090,7 @@ async function adminModifica(id){
   const p = adminPresenze.find(x=>x.id===id);
   if(!p) return;
   apriModalModifica(p, async (campi)=>{
-    await gPatch(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items/${id}/fields`, campi);
+    await presAggiorna(id, campi);
     showToast('✅ Presenza aggiornata');
     adminCarica();
   });
@@ -2023,7 +2099,7 @@ async function adminModifica(id){
 async function adminElimina(id, data, nome){
   if(!confirm(`Eliminare la presenza del ${data} di ${nome}?`)) return;
   try {
-    await gDelete(`/sites/${siteIdPresenze}/lists/${presenzeListId}/items/${id}`);
+    await presElimina(id);
     // Aggiorna cache globale
     presenzeCache = presenzeCache.filter(p => p.id !== id);
     showToast('🗑️ Presenza eliminata');
