@@ -177,6 +177,29 @@ textarea{min-height:80px;font-family:inherit;resize:vertical}
 .comm-item{padding:8px 12px;cursor:pointer;border-bottom:1px solid #f5f5f5;font-size:13px;transition:background .15s}
 .comm-item:last-child{border-bottom:none}
 .comm-item:hover{background:#eaf4fb}
+.ass-wrap{text-align:left}
+.ass-sec{font-size:11px;font-weight:700;letter-spacing:.5px;color:#7f8c8d;margin:0 0 8px}
+.ass-chips{display:flex;flex-wrap:wrap;gap:6px;min-height:34px;padding:8px;border:1px dashed #d5dbdb;border-radius:8px;background:#fbfcfc;margin-bottom:16px}
+.ass-chip{display:inline-flex;align-items:center;gap:6px;background:#eafaf1;color:#1e8449;border:1px solid #abebc6;border-radius:16px;padding:3px 6px 3px 10px;font-size:12px}
+.ass-chip.lock{background:#f2f4f4;color:#566573;border-color:#e5e8e8;padding-right:10px}
+.ass-chip button{border:none;background:#d5f5e3;color:#1e8449;border-radius:50%;width:18px;height:18px;line-height:18px;font-size:11px;cursor:pointer;padding:0}
+.ass-tools{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.ass-tools input{flex:1;padding:10px 12px;border:2px solid #e0e0e0;border-radius:8px;font-size:14px;outline:none}
+.ass-tools input:focus{border-color:#3498db}
+.ass-tab{border:1px solid #d5dbdb;background:#fff;border-radius:16px;padding:6px 12px;font-size:12px;cursor:pointer;white-space:nowrap}
+.ass-tab.on{background:#3498db;border-color:#3498db;color:#fff}
+.ass-list{max-height:46vh;overflow-y:auto;border:1px solid #e5e8e8;border-radius:8px}
+.ass-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid #f2f3f4;cursor:pointer;text-align:left}
+.ass-row:last-child{border-bottom:none}
+.ass-row:hover{background:#f4f9fd}
+.ass-row.sel{background:#eafaf1}
+.ass-box{width:20px;height:20px;border:2px solid #bdc3c7;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:13px;color:#fff;background:#fff}
+.ass-row.sel .ass-box{background:#27ae60;border-color:#27ae60}
+.ass-code{font-family:'Courier New',monospace;font-weight:700;color:#2c3e50;background:#f2f4f4;border-radius:4px;padding:2px 6px;font-size:12px;flex-shrink:0}
+.ass-txt{min-width:0}
+.ass-title{font-size:14px;color:#2c3e50}
+.ass-sub{font-size:12px;color:#95a5a6}
+.ass-empty{padding:16px;color:#999;font-size:13px;text-align:center}
 .comm-item.sel{background:#eaf4fb;border-left:3px solid #3498db}
 .comm-item .ci-code{font-weight:700;color:#2c3e50}
 .comm-item .ci-desc{color:#666;font-size:12px}
@@ -806,46 +829,64 @@ function renderAssegnazioni(){
     </tr>`;}).join('');
 }
 
+let assSel=new Set(), assSolo=false, assEmail='';
 function modaleAssegna(email){
   const u=utentiAssegnabili().find(x=>x.email===email);if(!u)return;
-  const loc=commesseLocali().sort((a,b)=>(a.codComm||'').localeCompare(b.codComm||''));
-  const scelte=new Set(commesseExtra[email]||[]);
+  assEmail=email; assSel=new Set(commesseExtra[email]||[]); assSolo=false;
   const cs=u.cantieri.map(id=>cantieriData.find(c=>String(c.id)===id)).filter(Boolean);
+  const loc=commesseLocali();
   openModal(`
   <div class="modal-header"><h3>🔗 Commesse di ${esc(u.nome)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
-  <div class="modal-body">
+  <div class="modal-body ass-wrap">
     <div id="msgModal"></div>
-    <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px">CANTIERI DAL GDL 🔒</div>
-    <div style="margin-bottom:14px">${cs.length?cs.map(c=>chip(`<strong>${esc(c.codComm)||'—'}</strong> ${esc(c.title)}`,'#eef2f5','#555')).join(''):'<span style="color:#999;font-size:13px">Nessuno. I cantieri si assegnano nel Giornale dei lavori.</span>'}</div>
-    <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px">COMMESSE AGGIUNTIVE</div>
+    <div class="ass-sec">CANTIERI DAL GIORNALE DEI LAVORI 🔒</div>
+    <div class="ass-chips">${cs.length?cs.map(c=>`<span class="ass-chip lock"><strong>${esc(c.codComm)||'—'}</strong> ${esc(c.title)}</span>`).join('')
+      :'<span class="ass-sub">Nessun cantiere. I cantieri si assegnano solo nel GDL.</span>'}</div>
+    <div class="ass-sec">COMMESSE AGGIUNTIVE ASSEGNATE</div>
+    <div class="ass-chips" id="assChips"></div>
     ${loc.length?`
-    <input type="text" placeholder="🔍 Cerca commessa..." oninput="filtraAssegna(this.value)" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;margin-bottom:8px">
-    <div style="font-size:12px;color:#666;margin-bottom:6px"><span id="assCount"></span></div>
-    <div id="assCommList" style="max-height:300px;overflow-y:auto;border:1px solid #eee;border-radius:8px">
-      ${loc.map(c=>`
-      <label class="comm-item" data-txt="${esc((c.codComm+' '+c.title+' '+c.committente).toLowerCase())}" style="display:flex;gap:8px;align-items:flex-start">
-        <input type="checkbox" value="${c.idLocale}" ${scelte.has(c.idLocale)?'checked':''} onchange="contaAssegna()" style="margin-top:3px">
-        <span><span class="ci-code">${esc(c.codComm)||'—'}</span> <span class="ci-desc">${esc(c.title)} ${c.committente?'— '+esc(c.committente):''}</span></span>
-      </label>`).join('')}
-    </div>`:'<div style="color:#999;font-size:13px">Non ci sono commesse aggiunte nel portale. Le crea l\'amministratore dalla scheda Commesse.</div>'}
-    ${assegnazioniListId?'':'<div class="error" style="margin-top:10px">⚠️ Manca la lista "Assegnazioni" sul sito Akhet-Presenze: le commesse aggiuntive non si possono salvare.</div>'}
+    <div class="ass-sec">AGGIUNGI O TOGLI</div>
+    <div class="ass-tools">
+      <input type="text" id="assQ" placeholder="🔍 Cerca per codice, nome o committente" oninput="assRender()">
+      <button type="button" class="ass-tab on" id="assTabTutte" onclick="assSolo=false;assRender()">Tutte</button>
+      <button type="button" class="ass-tab" id="assTabSel" onclick="assSolo=true;assRender()">Selezionate</button>
+    </div>
+    <div class="ass-list" id="assList"></div>`
+    :'<div class="ass-empty">Non ci sono ancora commesse aggiunte nel portale: le crea l\'amministratore dalla scheda Commesse.</div>'}
+    ${assegnazioniListId?'':'<div class="error" style="margin-top:10px">⚠️ Manca la lista "Assegnazioni" sul sito Akhet-Presenze: non è possibile salvare.</div>'}
   </div>
   <div class="modal-footer">
     <button class="btn btn-secondary" onclick="closeModal()">Annulla</button>
-    <button class="btn btn-success" id="btnSalvaAss" onclick="salvaAssegna(decodeURIComponent('${encodeURIComponent(email).replace(/'/g,'%27')}'))" ${assegnazioniListId&&loc.length?'':'disabled'}>💾 Salva</button>
+    <button class="btn btn-success" id="btnSalvaAss" onclick="salvaAssegna(assEmail)" ${assegnazioniListId&&loc.length?'':'disabled'}>💾 Salva</button>
   </div>`);
-  if(loc.length) contaAssegna();
+  document.getElementById('modalBox').style.maxWidth='760px';
+  assRender();
 }
-function filtraAssegna(q){
-  const ql=(q||'').toLowerCase();
-  document.querySelectorAll('#assCommList label').forEach(l=>{ l.style.display=(!ql||l.dataset.txt.includes(ql))?'flex':'none'; });
-}
-function contaAssegna(){
-  const n=document.querySelectorAll('#assCommList input:checked').length;
-  const el=document.getElementById('assCount'); if(el) el.textContent=`${n} commess${n===1?'a':'e'} selezionat${n===1?'a':'e'}`;
+function assToggle(id){ assSel.has(id)?assSel.delete(id):assSel.add(id); assRender(); }
+function assRender(){
+  const loc=commesseLocali().sort((a,b)=>(a.codComm||'').localeCompare(b.codComm||'','it'));
+  const chips=document.getElementById('assChips');
+  if(chips){
+    const sel=loc.filter(c=>assSel.has(c.idLocale));
+    chips.innerHTML=sel.length?sel.map(c=>`<span class="ass-chip"><strong>${esc(c.codComm)||'—'}</strong> ${esc(c.title)}<button type="button" title="Togli" onclick="assToggle('${c.idLocale}')">✕</button></span>`).join('')
+      :'<span class="ass-sub">Nessuna commessa aggiuntiva. Scegline una dall\'elenco qui sotto.</span>';
+  }
+  const list=document.getElementById('assList'); if(!list) return;
+  const q=(document.getElementById('assQ')?.value||'').toLowerCase();
+  document.getElementById('assTabTutte').classList.toggle('on',!assSolo);
+  const tabSel=document.getElementById('assTabSel');
+  tabSel.classList.toggle('on',assSolo); tabSel.textContent=`Selezionate (${assSel.size})`;
+  const vis=loc.filter(c=>(!assSolo||assSel.has(c.idLocale))&&(!q||(c.codComm+' '+c.title+' '+c.committente).toLowerCase().includes(q)));
+  list.innerHTML=vis.length?vis.map(c=>`
+    <div class="ass-row ${assSel.has(c.idLocale)?'sel':''}" onclick="assToggle('${c.idLocale}')">
+      <div class="ass-box">${assSel.has(c.idLocale)?'✓':''}</div>
+      <span class="ass-code">${esc(c.codComm)||'—'}</span>
+      <div class="ass-txt"><div class="ass-title">${esc(c.title)}</div>${c.committente?`<div class="ass-sub">${esc(c.committente)}</div>`:''}</div>
+    </div>`).join('')
+    :`<div class="ass-empty">${assSolo?'Nessuna commessa selezionata.':'Nessuna commessa trovata.'}</div>`;
 }
 async function salvaAssegna(email){
-  const ids=[...document.querySelectorAll('#assCommList input:checked')].map(i=>i.value);
+  const ids=[...assSel];
   const btn=document.getElementById('btnSalvaAss');
   btn.disabled=true;btn.textContent='⏳ Salvataggio...';
   try{
@@ -1697,6 +1738,7 @@ async function confElimina(id){
 function openModal(html){
   document.getElementById('modalBox').innerHTML=html;
   const ov=document.getElementById('modalOverlay');
+  document.getElementById('modalBox').style.maxWidth='';
   ov.style.display='';
   ov.classList.add('open');
   document.body.style.overflow='hidden';
