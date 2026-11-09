@@ -436,6 +436,23 @@ textarea{min-height:80px;font-family:inherit;resize:vertical}
           <option value="permesso">Permesso</option>
           <option value="malattia">Malattia</option>
           <option value="formazione">Formazione</option>
+          <option value="trasferta">Trasferta</option>
+          <option value="riunione">Riunione</option>
+          <option value="amministrativa">Amministrativa</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Fonte</label>
+        <select id="adminFiltroFonte" onchange="adminFiltra()" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+          <option value="">— Tutte —</option>
+          <option value="manuale">Manuale</option>
+          <option value="gdl">GDL</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Commessa</label>
+        <select id="adminFiltroCommessa" onchange="adminFiltra()" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px;max-width:260px">
+          <option value="">— Tutte —</option>
         </select>
       </div>
       <div style="align-self:flex-end">
@@ -1938,32 +1955,96 @@ function renderCommesse(){
   document.getElementById('commEmpty').style.display = filtered.length?'none':'block';
 }
 
+const TIPI_COMMESSA=[
+  {v:'cantiere',i:'🏗️',l:'Cantiere'},{v:'ufficio',i:'🏢',l:'Ufficio'},
+  {v:'amministrazione',i:'📝',l:'Amministrazione'},{v:'formazione',i:'📚',l:'Formazione'},
+  {v:'altro',i:'📌',l:'Altro'}
+];
 function commessaModale(id){
   const c = id ? commesseData.find(x=>x.id===id) : null;
-  document.getElementById('modalBox').innerHTML = `
-    <h3>${c?'Modifica commessa':'Nuova commessa'}</h3>
-    <div class="form-group"><label>Codice *</label>
-      <input type="text" id="cCodice" value="${esc(c?.codice||'')}" placeholder="es. 300_001_VDA_Prog" ${c?.sincGdl?'readonly':''}></div>
-    <div class="form-group"><label>Descrizione *</label>
-      <input type="text" id="cDesc" value="${esc(c?.descrizione||'')}" placeholder="Nome del progetto"></div>
-    <div class="form-group"><label>Committente</label>
-      <input type="text" id="cComm" value="${esc(c?.committente||'')}"></div>
-    <div class="form-group"><label>Tipo</label>
-      <select id="cTipo">
-        ${['cantiere','ufficio','amministrazione','formazione','altro'].map(t=>`<option value="${t}" ${(c?.tipo||'cantiere')===t?'selected':''}>${t}</option>`).join('')}
-      </select></div>
-    <div class="form-group"><label>Stato</label>
-      <select id="cAttiva">
-        <option value="true" ${(c?.attiva!==false)?'selected':''}>Attiva</option>
-        <option value="false" ${c?.attiva===false?'selected':''}>Disattiva</option>
-      </select></div>
-    <div class="form-group"><label>Note</label>
-      <input type="text" id="cNote" value="${esc(c?.note||'')}"></div>
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:20px">
-      <button class="btn btn-secondary" onclick="closeModal()">Annulla</button>
-      <button class="btn btn-success" onclick="commessaSalva('${id||''}')">💾 Salva</button>
-    </div>`;
-  document.getElementById('modalOverlay').classList.add('open'); document.getElementById('modalOverlay').style.display='flex';
+  const tipoCorr = c?.tipo || 'cantiere';
+  const attiva = c?.attiva!==false;
+  const lbl = 'font-size:12px;font-weight:600;color:#555;display:block;margin-bottom:6px';
+  const inp = 'width:100%;padding:10px 12px;border:2px solid #e0e0e0;border-radius:8px;font-size:14px;box-sizing:border-box;outline:none';
+  const foc = `onfocus="this.style.borderColor='#3498db'" onblur="this.style.borderColor='#e0e0e0'"`;
+  openModal(`
+    <div style="padding:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #f0f0f0">
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:48px;height:48px;border-radius:50%;background:#27ae60;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">🏗️</div>
+          <div>
+            <h3 style="margin:0;font-size:18px;color:#2c3e50">${c?'Modifica commessa':'Nuova commessa'}</h3>
+            <p style="margin:4px 0 0;font-size:12px;color:#888">${c?'Modifica i dati della commessa':'Aggiungi una commessa che non compare nel GDL (ufficio, amministrazione, ecc.)'}</p>
+          </div>
+        </div>
+        <button onclick="closeModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999;padding:4px 8px;border-radius:6px;line-height:1" title="Chiudi">✕</button>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:16px;margin-bottom:16px">
+        <div>
+          <label style="${lbl}">CODICE *</label>
+          <input type="text" id="cCodice" value="${esc(c?.codice||'')}" placeholder="es. 300_001" ${c?.sincGdl?'readonly':''}
+            style="${inp};background:${c?.sincGdl?'#f8f9fa':'#fff'}" ${foc}>
+        </div>
+        <div>
+          <label style="${lbl}">DESCRIZIONE *</label>
+          <input type="text" id="cDesc" value="${esc(c?.descrizione||'')}" placeholder="Nome del progetto o dell'attività" style="${inp}" ${foc}>
+        </div>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="${lbl}">COMMITTENTE</label>
+        <input type="text" id="cComm" value="${esc(c?.committente||'')}" placeholder="Opzionale" style="${inp}" ${foc}>
+      </div>
+
+      <div style="margin-bottom:16px">
+        <label style="${lbl.replace('6px','8px')}">TIPO</label>
+        <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:8px">
+          ${TIPI_COMMESSA.map(t=>`
+            <div onclick="selTipoComm('${t.v}')" id="ctipo_${t.v}" style="padding:10px 4px;border:2px solid ${tipoCorr===t.v?'#3498db':'#e0e0e0'};border-radius:8px;cursor:pointer;background:${tipoCorr===t.v?'#ebf5fb':'#fff'};text-align:center;transition:all 0.15s">
+              <div style="font-size:18px;margin-bottom:4px">${t.i}</div>
+              <div style="font-size:11px;font-weight:600;color:#2c3e50">${t.l}</div>
+            </div>`).join('')}
+        </div>
+        <input type="hidden" id="cTipo" value="${tipoCorr}">
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+        <div>
+          <label style="${lbl}">STATO</label>
+          <div style="display:flex;gap:8px">
+            <button type="button" id="cStatoOn" onclick="selStatoComm(true)"
+              style="flex:1;padding:9px;border:2px solid ${attiva?'#27ae60':'#e0e0e0'};border-radius:8px;background:${attiva?'#eafaf1':'#fff'};font-size:13px;cursor:pointer">✅ Attiva</button>
+            <button type="button" id="cStatoOff" onclick="selStatoComm(false)"
+              style="flex:1;padding:9px;border:2px solid ${!attiva?'#e74c3c':'#e0e0e0'};border-radius:8px;background:${!attiva?'#fdf0ed':'#fff'};font-size:13px;cursor:pointer">⏸️ Disattiva</button>
+          </div>
+          <input type="hidden" id="cAttiva" value="${attiva?'true':'false'}">
+        </div>
+        <div>
+          <label style="${lbl}">NOTE</label>
+          <input type="text" id="cNote" value="${esc(c?.note||'')}" placeholder="Opzionale" style="${inp}" ${foc}>
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-secondary" onclick="closeModal()">Annulla</button>
+        <button class="btn btn-success" onclick="commessaSalva('${id||''}')">${c?'💾 Salva modifiche':'➕ Aggiungi commessa'}</button>
+      </div>
+    </div>`);
+}
+function selTipoComm(v){
+  document.getElementById('cTipo').value=v;
+  TIPI_COMMESSA.forEach(t=>{
+    const el=document.getElementById('ctipo_'+t.v); if(!el)return;
+    el.style.borderColor=t.v===v?'#3498db':'#e0e0e0';
+    el.style.background=t.v===v?'#ebf5fb':'#fff';
+  });
+}
+function selStatoComm(on){
+  document.getElementById('cAttiva').value=on?'true':'false';
+  const a=document.getElementById('cStatoOn'), d=document.getElementById('cStatoOff');
+  a.style.borderColor=on?'#27ae60':'#e0e0e0'; a.style.background=on?'#eafaf1':'#fff';
+  d.style.borderColor=!on?'#e74c3c':'#e0e0e0'; d.style.background=!on?'#fdf0ed':'#fff';
 }
 
 async function commessaSalva(id){
@@ -2021,13 +2102,34 @@ function adminCarica(){
   }
 
   adminPresenze = tutte.sort((a,b) => a.data < b.data ? -1 : 1);
-  adminRenderDashboard();
+  adminPopolaCommesse();
   adminFiltra();
 }
 
+// Chiave commessa: codice + nome cantiere (più cantieri possono avere lo stesso codice)
+function chiaveCommessa(p){ return (p.codiceCommessa||'')+'|'+(p.nomeCantiere||''); }
+function adminPopolaCommesse(){
+  const sel=document.getElementById('adminFiltroCommessa');
+  const prima=sel.value;
+  const viste=new Map();
+  adminPresenze.forEach(p=>{
+    const k=chiaveCommessa(p);
+    if(!viste.has(k)) viste.set(k,[p.codiceCommessa,p.nomeCantiere].filter(Boolean).join(' – ')||'(senza commessa)');
+  });
+  const voci=[...viste.entries()].sort((a,b)=>a[1].localeCompare(b[1],'it'));
+  sel.innerHTML='<option value="">— Tutte —</option>'+voci.map(([k,l])=>`<option value="${esc(k)}">${esc(l)}</option>`).join('');
+  sel.value=viste.has(prima)?prima:'';
+}
+
 function adminFiltra(){
-  const tipo = document.getElementById('adminFiltroTipo').value;
-  adminFiltrate = tipo ? adminPresenze.filter(p=>p.tipo===tipo) : [...adminPresenze];
+  const tipo  = document.getElementById('adminFiltroTipo').value;
+  const fonte = document.getElementById('adminFiltroFonte').value;
+  const comm  = document.getElementById('adminFiltroCommessa').value;
+  adminFiltrate = adminPresenze.filter(p=>
+    (!tipo  || p.tipo===tipo) &&
+    (!fonte || (p.fonte||'manuale').toLowerCase()===fonte) &&
+    (!comm  || chiaveCommessa(p)===comm));
+  adminRenderDashboard();
   adminRenderTabella();
 }
 
@@ -2072,7 +2174,7 @@ function adminRenderTabella(){
 function adminRenderDashboard(){
   // Raggruppa per utente
   const perUtente = {};
-  for(const p of adminPresenze){
+  for(const p of adminFiltrate){
     const k = p.utenteName || p.utenteEmail;
     if(!perUtente[k]) perUtente[k]={nome:k,email:p.utenteEmail,tot:0,cantiere:0,ufficio:0,assenze:0};
     perUtente[k].tot += p.ore;
