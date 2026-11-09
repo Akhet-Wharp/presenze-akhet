@@ -674,7 +674,7 @@ async function initApp(){
     document.getElementById('app').style.display='block';
     aggiornaNav();
     aggiornaHeader();
-    if(currentRole==='admin'){showSection('admin');}else{renderDashboard();}
+    renderDashboard();
     showMsg('Connesso a SharePoint ✓','success');
     setTimeout(()=>document.getElementById('msgGlobale').innerHTML='',3000);
   }catch(e){
@@ -982,13 +982,15 @@ function loadPresenze(){
 function aggiornaNav(){
   const isSup=currentRole==='supervisor'||currentRole==='admin';
   const isAdm=currentRole==='admin';
-  // Admin: nasconde sezioni personali, mostra gestione
-  document.getElementById('nav-dashboard').style.display=isAdm?'none':'';
-  document.getElementById('nav-presenze').style.display=isAdm?'none':'';
-  document.getElementById('nav-calendario').style.display=isAdm?'none':'';
-  document.getElementById('nav-team').style.display=(isSup&&!isAdm)?'':'none';
+  // Ruoli: operator = solo sezioni personali; supervisor = personali + team, commesse (consultazione),
+  // presenze totali (consultazione, modifica, eliminazione, esportazione), assegnazioni;
+  // admin = tutto, compresa la gestione di commesse e utenti
+  document.getElementById('nav-dashboard').style.display='';
+  document.getElementById('nav-presenze').style.display='';
+  document.getElementById('nav-calendario').style.display='';
+  document.getElementById('nav-team').style.display=isSup?'':'none';
   document.getElementById('nav-commesse').style.display=isSup?'':'none';
-  document.getElementById('nav-admin').style.display=isAdm?'':'none';
+  document.getElementById('nav-admin').style.display=isSup?'':'none';
   document.getElementById('nav-utenti').style.display=isAdm?'':'none';
   document.getElementById('nav-assegnazioni').style.display=isSup?'':'none';
 }
@@ -1015,8 +1017,8 @@ function showSection(name){
     loadUtentiPres().then(renderUtenti);
   }
   if(name==='commesse'){
-    const isAdm=currentRole==='admin';
-    if(isAdm) loadCommessePres().then(renderCommesse);
+    const puoGestire=currentRole==='admin';
+    if(puoGestire) loadCommessePres().then(renderCommesse);
     else renderCommesse();
   }
 
@@ -1253,13 +1255,11 @@ function renderTeam(){
     if(!byU[k])byU[k]={chiave:k,email:p.utenteEmail||'',nome:p.utenteName||p.utenteEmail||'—',presenze:[]};
     byU[k].presenze.push(p);
   });
-  // Operatori del GDL senza presenze nel mese: compaiono con 0 ore, per vedere chi manca
-  utentiData
-    .filter(u=>u.ruolo==='operator'&&u.email)
-    .forEach(u=>{if(!byU[u.email])byU[u.email]={chiave:u.email,email:u.email,nome:u.nome||u.email,presenze:[]};});
-  // Tutti quelli con presenze nel mese compaiono, compresi supervisor e admin
+  // Compaiono solo le persone che hanno ore registrate nel mese (compresi supervisor e admin),
+  // in ordine alfabetico
   const rows=Object.values(byU)
-    .sort((a,b)=>a.nome.localeCompare(b.nome));
+    .filter(r=>r.presenze.length>0)
+    .sort((a,b)=>a.nome.localeCompare(b.nome,'it',{sensitivity:'base'}));
   const c=160;
   document.getElementById('teamTbody').innerHTML=rows.map(r=>{
     const t=calcTot(r.presenze);
@@ -1886,7 +1886,8 @@ async function loadCommessePres(){
 function renderCommesse(){
   const q=(document.getElementById('commSearch')?.value||'').toLowerCase();
   const isAdm=currentRole==='admin';
-  if(isAdm) document.getElementById('btnNuovaCommessa').style.display='';
+  const puoGestire=isAdm;
+  if(puoGestire) document.getElementById('btnNuovaCommessa').style.display='';
 
   // Unisce cantieri GDL + commesse extra dalla lista Presenze
   const codiciGdl = new Set(cantieriData.map(c=>c.codComm||''));
@@ -1930,7 +1931,7 @@ function renderCommesse(){
       <td style="font-family:'Courier New',monospace;font-weight:700">${f1(oreRiga(c))}h</td>
       <td style="white-space:nowrap">
         ${c.sincGdl?'<span style="color:#3498db;font-size:11px">🔗 GDL</span>':''}
-        ${isAdm&&c.id?`<button class="btn btn-secondary small-btn" onclick="commessaModale('${c.id}')">✏️</button>`:''}
+        ${puoGestire&&c.id?`<button class="btn btn-secondary small-btn" onclick="commessaModale('${c.id}')">✏️</button>`:''}
         ${isAdm&&c.id&&!c.sincGdl?`<button class="btn small-btn" style="background:#e74c3c;color:#fff" onclick="commessaElimina('${c.id}','${esc(c.codice)}')">🗑️</button>`:''}
       </td>
     </tr>`).join('');
@@ -2051,7 +2052,8 @@ function adminRenderTabella(){
 
   tbody.innerHTML = adminFiltrate.map(p=>{
     const col = TIPO_COLOR[p.tipo]||'#95a5a6';
-    const puoModif = p.modificabile !== false;
+    const isAdmT = currentRole==='admin'||currentRole==='supervisor';
+    const puoModif = isAdmT && p.modificabile !== false;
     return `<tr>
       <td>${p.data}</td>
       <td><strong>${p.utenteName||p.utenteEmail}</strong><br><small style="color:#888">${p.utenteEmail}</small></td>
@@ -2061,7 +2063,7 @@ function adminRenderTabella(){
       <td><span style="font-size:11px;color:#888">${p.fonte||'manuale'}</span></td>
       <td style="white-space:nowrap">
         ${puoModif?`<button class="btn btn-secondary small-btn" onclick="adminModifica('${p.id}')">✏️</button>`:''}
-        <button class="btn small-btn" style="background:#e74c3c;color:#fff" onclick="adminElimina('${p.id}','${p.data}','${(p.utenteName||'').replace(/'/g,'\'')}')">🗑️</button>
+        ${isAdmT?`<button class="btn small-btn" style="background:#e74c3c;color:#fff" onclick="adminElimina('${p.id}','${p.data}','${(p.utenteName||'').replace(/'/g,'\'')}')">🗑️</button>`:''}
       </td>
     </tr>`;
   }).join('');
