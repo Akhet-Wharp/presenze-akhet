@@ -1984,9 +1984,22 @@ async function utenteElimina(id, nome){
 // ================================================
 // COMMESSE (lista Presenze)
 // ================================================
+// Colonne reali della lista Commesse (i nomi interni possono variare)
+let commesseColonne=null;
+async function loadColonneCommesse(){
+  if(commesseColonne||!commesseListId) return;
+  try{
+    const r=await gGet(`/sites/${siteIdPresenze}/lists/${commesseListId}/columns?$select=name`);
+    commesseColonne=new Set((r.value||[]).map(c=>c.name));
+  }catch(e){ console.warn('Colonne Commesse non lette:',e.message); }
+}
+function campoTipoCommessa(){
+  if(!commesseColonne) return null;
+  return ['TipoCommessa','Tipo','Tipologia','Categoria'].find(n=>commesseColonne.has(n))||null;
+}
 async function loadCommessePres(){
   if(!commesseListId) return;
-  const r = await gGet(`/sites/${siteIdPresenze}/lists/${commesseListId}/items?$expand=fields($select=Title,CodiceCommessa,Descrizione,Committente,Tipo,Attiva,SincGDL,Note)&$select=id,fields&$top=1000`);
+  const r = await gGet(`/sites/${siteIdPresenze}/lists/${commesseListId}/items?$expand=fields($select=Title,CodiceCommessa,Descrizione,Committente,TipoCommessa,Attiva,SincGDL,Note)&$select=id,fields&$top=1000`);
   commesseData = r.value.map(i=>({
     id: i.id,
     codice: i.fields.CodiceCommessa||i.fields.Title||'',
@@ -2154,7 +2167,14 @@ async function commessaSalva(id){
   const attiva = document.getElementById('cAttiva').value==='true';
   const note   = document.getElementById('cNote').value.trim();
   if(!codice||!desc){showToast('Codice e descrizione obbligatori','warn');return;}
-  const fields={Title:desc,CodiceCommessa:codice,Descrizione:desc,Committente:comm,Tipo:tipo,Attiva:attiva,Note:note,SincGDL:false};
+  await loadColonneCommesse();
+  const tutti={Title:desc,CodiceCommessa:codice,Descrizione:desc,Committente:comm,Attiva:attiva,Note:note,SincGDL:false};
+  const ct=campoTipoCommessa(); if(ct) tutti[ct]=tipo;
+  // invia solo le colonne che esistono davvero nella lista
+  const fields={};
+  for(const [k,v] of Object.entries(tutti)){ if(k==='Title'||!commesseColonne||commesseColonne.has(k)) fields[k]=v; }
+  const mancanti=commesseColonne?Object.keys(tutti).filter(k=>k!=='Title'&&!commesseColonne.has(k)):[];
+  if(!ct&&commesseColonne) mancanti.push('TipoCommessa');
   try{
     if(id){
       await gPatch(`/sites/${siteIdPresenze}/lists/${commesseListId}/items/${id}/fields`,fields);
@@ -2163,6 +2183,7 @@ async function commessaSalva(id){
       await gPost(`/sites/${siteIdPresenze}/lists/${commesseListId}/items`,{fields});
       showToast('✅ Commessa aggiunta');
     }
+    if(mancanti.length) toast('⚠️ Colonne mancanti nella lista Commesse, non salvate: '+mancanti.join(', '),'e');
     closeModal();
     await loadCommessePres(); renderCommesse();
   }catch(e){showToast('❌ '+e.message,'error');}
