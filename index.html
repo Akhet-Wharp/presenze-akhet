@@ -787,10 +787,13 @@ async function loadAssegnazioni(){
   }
 }
 
-// Commesse che l'utente corrente può scegliere:
-// operator = cantieri assegnati nel GDL + commesse aggiuntive assegnate nel portale + ADMIN (assenze)
+// Commesse su cui si possono registrare ore. Non dipende dal ruolo:
+// per le PROPRIE presenze valgono sempre e solo le assegnazioni (cantieri del GDL + commesse
+// aggiuntive del portale + ADMIN per le assenze). Solo quando supervisor/admin correggono la
+// presenza di un'altra persona vedono tutte le commesse.
+let commPerAltri=false;
 function commesseDisponibili(){
-  if(currentRole!=='operator')return tutteLeCommesse();
+  if(commPerAltri && currentRole!=='operator') return tutteLeCommesse();
   const me=utentiData.find(u=>u.email===currentEmail);
   const ids=new Set(me?.cantieri||[]);
   const extra=new Set(commesseExtra[currentEmail]||[]);
@@ -1486,6 +1489,7 @@ function vediCommessa(id){
 // MODAL INSERIMENTO PRESENZA
 // ================================================
 function apriModalPresenza(dataPreset=''){
+  commPerAltri=false;
   const oggi=dataPreset||new Date().toISOString().split('T')[0];
   const optsT=TIPI.map(t=>`<option value="${t.v}">${t.l}</option>`).join('');
   openModal(`
@@ -1546,8 +1550,8 @@ function popolaComm(q){
     <div class="comm-item ${selId===c.id?'sel':''}" onclick="selComm('${c.id}','${esc(c.codComm)}','${esc(c.title)}')">
       <span class="ci-code">${esc(c.codComm)||'—'}</span>
       <span class="ci-desc">${esc(c.title)} ${c.codProg?'· '+c.codProg:''} ${c.committente?'— '+c.committente:''}</span>
-    </div>`).join('')||(currentRole==='operator'&&disp.filter(c=>c.codComm!=='ADMIN'&&c.title!=='ADMIN').length===0
-    ?`<div style="padding:12px;color:#e67e22">⚠️ Non hai commesse assegnate: chiedi al tuo supervisor di assegnartele.</div>`
+    </div>`).join('')||(!commPerAltri&&disp.filter(c=>c.codComm!=='ADMIN'&&c.title!=='ADMIN').length===0
+    ?`<div style="padding:12px;color:#e67e22">⚠️ Non hai commesse assegnate: chiedi di assegnartele (cantieri nel GDL, altre commesse nel portale).</div>`
     :`<div style="padding:12px;color:#666">Nessuna commessa trovata</div>`);
 }
 
@@ -1665,6 +1669,7 @@ function vediPresenza(id){
 function modificaPresenza(id){
   const p=presenzeData.find(x=>x.id===id)||presenzeCache.find(x=>x.id===id);
   if(!p||!p.modificabile){toast('Presenza non modificabile','e');return;}
+  commPerAltri=(p.utenteEmail||'')!==currentEmail;
   const optsT=TIPI.map(t=>`<option value="${t.v}" ${t.v===p.tipo?'selected':''}>${t.l}</option>`).join('');
   openModal(`
   <div class="modal-header"><h3>✏️ Modifica presenza</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
