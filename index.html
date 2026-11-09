@@ -376,12 +376,12 @@ textarea{min-height:80px;font-family:inherit;resize:vertical}
   <!-- ========== UTENTI ========== -->
   <!-- ========== ASSEGNAZIONI COMMESSE (supervisor/admin) ========== -->
   <div id="sec-assegnazioni" class="section">
-    <h3>🔗 Commesse assegnate agli operatori</h3>
-    <div class="info">ℹ️ Quando inserisce una presenza, l'operatore vede solo le commesse assegnate qui. Le assegnazioni sono le stesse del Giornale dei Lavori (cantieri assegnati nella lista Utenti).</div>
-    <input type="text" id="assSearch" placeholder="🔍 Cerca operatore..." oninput="renderAssegnazioni()" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;margin:12px 0">
+    <h3>🔗 Commesse assegnate agli utenti</h3>
+    <div class="info">ℹ️ Quando inserisce una presenza, l'operatore vede i cantieri assegnati nel Giornale dei lavori (🔒, si modificano solo dal GDL) più le commesse aggiuntive assegnate qui (ufficio, amministrazione, formazione…).</div>
+    <input type="text" id="assSearch" placeholder="🔍 Cerca utente..." oninput="renderAssegnazioni()" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;margin:12px 0">
     <div style="overflow-x:auto">
       <table class="pres-table">
-        <thead><tr><th>Operatore</th><th>Commesse assegnate</th><th></th></tr></thead>
+        <thead><tr><th>Utente</th><th>Cantieri dal GDL</th><th>Commesse aggiuntive</th><th></th></tr></thead>
         <tbody id="assTbody"></tbody>
       </table>
     </div>
@@ -545,6 +545,9 @@ let siteIdPresenze = null;  // Akhet-Presenze → Presenze
 let utentiPresListId  = null; // lista Utenti nel sito Presenze
 let commesseListId    = null; // lista Commesse nel sito Presenze
 let commesseData      = [];   // cache commesse
+let assegnazioniListId = null; // lista Assegnazioni nel sito Presenze (commesse aggiuntive per utente)
+let commesseExtra      = {};   // email -> [id commesse locali]
+let assegnazioniItem   = {};   // email -> id elemento nella lista Assegnazioni
 let cantieriListId = null;
 let presenzeListId = null;
 let utentiListId   = null;
@@ -678,6 +681,8 @@ async function initApp(){
 
     lsSet('Caricamento dati…','Cantieri e commesse',65);
     await loadCantieri();
+    try{ await loadCommessePres(); }catch(e){ console.warn('Commesse locali non leggibili:',e.message); }
+    try{ await loadAssegnazioni(); }catch(e){ console.warn('Assegnazioni non leggibili:',e.message); }
 
     lsSet('Caricamento dati…','Presenze',82);
     await loadPresenzeCache();
@@ -724,6 +729,7 @@ async function loadListIds(){
   for(const l of listsR.value){
     if(l.displayName==='Utenti')   utentiPresListId = l.id;
     if(l.displayName==='Commesse') commesseListId   = l.id;
+    if(l.displayName==='Assegnazioni') assegnazioniListId = l.id;
   }
 }
 
@@ -735,80 +741,122 @@ function parseCantieriAss(v){
   return String(v).split(',').map(x=>x.trim()).filter(Boolean);
 }
 
-// Commesse che l'utente corrente può scegliere (operator: solo assegnate + ADMIN per le assenze)
+// Commesse aggiunte nel portale (lista Commesse del sito Presenze), nello stesso formato dei cantieri GDL
+function commesseLocali(){
+  return commesseData.filter(c=>c.attiva).map(c=>({
+    id:'c'+c.id, idLocale:String(c.id), title:c.descrizione||c.codice, codComm:c.codice,
+    codProg:'', committente:c.committente||'', locale:true}));
+}
+function tutteLeCommesse(){ return cantieriData.concat(commesseLocali()); }
+
+async function loadAssegnazioni(){
+  commesseExtra={}; assegnazioniItem={};
+  if(!assegnazioniListId) return;
+  let url=`/sites/${siteIdPresenze}/lists/${assegnazioniListId}/items?$expand=fields($select=Title,CommesseExtra)&$select=id,fields&$top=999`;
+  while(url){
+    const r=await gGet(url.replace('https://graph.microsoft.com/v1.0',''));
+    r.value.forEach(i=>{
+      const em=(i.fields.Title||'').toLowerCase().trim(); if(!em) return;
+      assegnazioniItem[em]=i.id;
+      commesseExtra[em]=String(i.fields.CommesseExtra||'').split(',').map(x=>x.trim()).filter(Boolean);
+    });
+    url=r['@odata.nextLink']||null;
+  }
+}
+
+// Commesse che l'utente corrente può scegliere:
+// operator = cantieri assegnati nel GDL + commesse aggiuntive assegnate nel portale + ADMIN (assenze)
 function commesseDisponibili(){
-  if(currentRole!=='operator')return cantieriData;
+  if(currentRole!=='operator')return tutteLeCommesse();
   const me=utentiData.find(u=>u.email===currentEmail);
   const ids=new Set(me?.cantieri||[]);
-  return cantieriData.filter(c=>ids.has(String(c.id))||c.codComm==='ADMIN'||c.title==='ADMIN');
+  const extra=new Set(commesseExtra[currentEmail]||[]);
+  return cantieriData.filter(c=>ids.has(String(c.id))||c.codComm==='ADMIN'||c.title==='ADMIN')
+    .concat(commesseLocali().filter(c=>extra.has(c.idLocale)));
 }
+
+function utentiAssegnabili(){
+  const m=new Map();
+  utentiData.forEach(u=>{ if(u.email) m.set(u.email,{email:u.email,nome:u.nome||u.email,cantieri:u.cantieri||[],
+    esterno:u.tipoLogin==='esterno'||!u.email.endsWith('@akhet.it'),gdl:true}); });
+  utentiPresData.forEach(u=>{ if(u.email&&!m.has(u.email)) m.set(u.email,{email:u.email,nome:u.nome||u.email,cantieri:[],
+    esterno:!u.email.endsWith('@akhet.it'),gdl:false}); });
+  return [...m.values()].sort((a,b)=>(a.nome||'').localeCompare(b.nome||'','it',{sensitivity:'base'}));
+}
+const chip=(t,bg,col)=>`<span style="display:inline-block;background:${bg};color:${col};border-radius:10px;padding:2px 8px;margin:2px;font-size:12px">${t}</span>`;
 
 function renderAssegnazioni(){
   const q=(document.getElementById('assSearch')?.value||'').toLowerCase();
-  const ops=utentiData.filter(u=>u.ruolo==='operator')
-    .filter(u=>!q||(u.nome+' '+u.email).toLowerCase().includes(q))
-    .sort((a,b)=>(a.nome||a.email).localeCompare(b.nome||b.email));
+  const loc=commesseLocali();
+  const rows=utentiAssegnabili().filter(u=>!q||(u.nome+' '+u.email).toLowerCase().includes(q));
   const tb=document.getElementById('assTbody');
-  if(!ops.length){tb.innerHTML='<tr><td colspan="3" style="color:#666;padding:12px">Nessun operatore trovato.</td></tr>';return;}
-  tb.innerHTML=ops.map(u=>{
+  if(!rows.length){tb.innerHTML='<tr><td colspan="4" style="color:#666;padding:12px">Nessun utente trovato.</td></tr>';return;}
+  tb.innerHTML=rows.map(u=>{
     const cs=u.cantieri.map(id=>cantieriData.find(c=>String(c.id)===id)).filter(Boolean);
-    const chips=cs.length?cs.map(c=>`<span style="display:inline-block;background:#eaf4fb;color:#1a5276;border-radius:10px;padding:2px 8px;margin:2px;font-size:12px"><strong>${esc(c.codComm)||'—'}</strong> ${esc(c.title)}</span>`).join('')
-      :'<span style="color:#e67e22;font-size:13px">⚠️ Nessuna commessa: l\'operatore non potrà inserire presenze di lavoro</span>';
+    const gdl=cs.length?cs.map(c=>chip(`🔒 <strong>${esc(c.codComm)||'—'}</strong> ${esc(c.title)}`,'#eef2f5','#555')).join('')
+      :'<span style="color:#aaa;font-size:12px">—</span>';
+    const ex=(commesseExtra[u.email]||[]).map(id=>loc.find(c=>c.idLocale===id)).filter(Boolean);
+    const extra=ex.length?ex.map(c=>chip(`<strong>${esc(c.codComm)||'—'}</strong> ${esc(c.title)}`,'#eafaf1','#1e8449')).join('')
+      :'<span style="color:#aaa;font-size:12px">nessuna</span>';
     return `<tr>
-      <td><strong>${esc(u.nome||u.email)}</strong><br><small style="color:#666">${esc(u.email)}</small></td>
-      <td>${chips}</td>
-      <td style="text-align:right"><button class="btn btn-primary small-btn" onclick="modaleAssegna('${u.id}')">✏️ Modifica</button></td>
+      <td><strong>${esc(u.nome)}</strong> ${u.esterno?chip('esterno','#fef5e7','#b9770e'):''}<br><small style="color:#666">${esc(u.email)}</small></td>
+      <td>${gdl}</td>
+      <td>${extra}</td>
+      <td style="text-align:right"><button class="btn btn-primary small-btn" onclick="modaleAssegna(decodeURIComponent('${encodeURIComponent(u.email).replace(/'/g,'%27')}'))">✏️ Modifica</button></td>
     </tr>`;}).join('');
 }
 
-function modaleAssegna(uid){
-  const u=utentiData.find(x=>x.id===uid);if(!u)return;
+function modaleAssegna(email){
+  const u=utentiAssegnabili().find(x=>x.email===email);if(!u)return;
+  const loc=commesseLocali().sort((a,b)=>(a.codComm||'').localeCompare(b.codComm||''));
+  const scelte=new Set(commesseExtra[email]||[]);
+  const cs=u.cantieri.map(id=>cantieriData.find(c=>String(c.id)===id)).filter(Boolean);
   openModal(`
-  <div class="modal-header"><h3>🔗 Commesse di ${esc(u.nome||u.email)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  <div class="modal-header"><h3>🔗 Commesse di ${esc(u.nome)}</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
   <div class="modal-body">
     <div id="msgModal"></div>
-    <input type="text" id="assCommSrch" placeholder="🔍 Cerca commessa..." oninput="filtraAssegna(this.value)" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;margin-bottom:8px">
-    <div style="font-size:12px;color:#666;margin-bottom:6px"><span id="assCount"></span> · <a href="javascript:void(0)" onclick="soloSelAssegna()" style="color:#3498db" id="assToggleSel">mostra solo selezionate</a></div>
-    <div id="assCommList" style="max-height:340px;overflow-y:auto;border:1px solid #eee;border-radius:8px">
-      ${cantieriData.slice().sort((a,b)=>(a.codComm||'').localeCompare(b.codComm||'')).map(c=>`
-      <label class="comm-item" data-txt="${esc((c.codComm+' '+c.title+' '+c.codProg+' '+c.committente).toLowerCase())}" style="display:flex;gap:8px;align-items:flex-start">
-        <input type="checkbox" value="${c.id}" ${u.cantieri.includes(String(c.id))?'checked':''} onchange="contaAssegna()" style="margin-top:3px">
-        <span><span class="ci-code">${esc(c.codComm)||'—'}</span> <span class="ci-desc">${esc(c.title)} ${c.codProg?'· '+esc(c.codProg):''} ${c.committente?'— '+esc(c.committente):''}</span></span>
+    <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px">CANTIERI DAL GDL 🔒</div>
+    <div style="margin-bottom:14px">${cs.length?cs.map(c=>chip(`<strong>${esc(c.codComm)||'—'}</strong> ${esc(c.title)}`,'#eef2f5','#555')).join(''):'<span style="color:#999;font-size:13px">Nessuno. I cantieri si assegnano nel Giornale dei lavori.</span>'}</div>
+    <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px">COMMESSE AGGIUNTIVE</div>
+    ${loc.length?`
+    <input type="text" placeholder="🔍 Cerca commessa..." oninput="filtraAssegna(this.value)" style="width:100%;padding:10px;border:1px solid #ddd;border-radius:8px;margin-bottom:8px">
+    <div style="font-size:12px;color:#666;margin-bottom:6px"><span id="assCount"></span></div>
+    <div id="assCommList" style="max-height:300px;overflow-y:auto;border:1px solid #eee;border-radius:8px">
+      ${loc.map(c=>`
+      <label class="comm-item" data-txt="${esc((c.codComm+' '+c.title+' '+c.committente).toLowerCase())}" style="display:flex;gap:8px;align-items:flex-start">
+        <input type="checkbox" value="${c.idLocale}" ${scelte.has(c.idLocale)?'checked':''} onchange="contaAssegna()" style="margin-top:3px">
+        <span><span class="ci-code">${esc(c.codComm)||'—'}</span> <span class="ci-desc">${esc(c.title)} ${c.committente?'— '+esc(c.committente):''}</span></span>
       </label>`).join('')}
-    </div>
+    </div>`:'<div style="color:#999;font-size:13px">Non ci sono commesse aggiunte nel portale. Le crea l\'amministratore dalla scheda Commesse.</div>'}
+    ${assegnazioniListId?'':'<div class="error" style="margin-top:10px">⚠️ Manca la lista "Assegnazioni" sul sito Akhet-Presenze: le commesse aggiuntive non si possono salvare.</div>'}
   </div>
   <div class="modal-footer">
     <button class="btn btn-secondary" onclick="closeModal()">Annulla</button>
-    <button class="btn btn-success" onclick="salvaAssegna('${u.id}')" id="btnSalvaAss">💾 Salva</button>
+    <button class="btn btn-success" id="btnSalvaAss" onclick="salvaAssegna(decodeURIComponent('${encodeURIComponent(email).replace(/'/g,'%27')}'))" ${assegnazioniListId&&loc.length?'':'disabled'}>💾 Salva</button>
   </div>`);
-  contaAssegna();
+  if(loc.length) contaAssegna();
 }
-let assSoloSel=false;
 function filtraAssegna(q){
   const ql=(q||'').toLowerCase();
-  document.querySelectorAll('#assCommList label').forEach(l=>{
-    const ok=(!ql||l.dataset.txt.includes(ql))&&(!assSoloSel||l.querySelector('input').checked);
-    l.style.display=ok?'flex':'none';
-  });
-}
-function soloSelAssegna(){
-  assSoloSel=!assSoloSel;
-  document.getElementById('assToggleSel').textContent=assSoloSel?'mostra tutte':'mostra solo selezionate';
-  filtraAssegna(document.getElementById('assCommSrch').value);
+  document.querySelectorAll('#assCommList label').forEach(l=>{ l.style.display=(!ql||l.dataset.txt.includes(ql))?'flex':'none'; });
 }
 function contaAssegna(){
   const n=document.querySelectorAll('#assCommList input:checked').length;
-  document.getElementById('assCount').textContent=`${n} commess${n===1?'a':'e'} selezionat${n===1?'a':'e'}`;
+  const el=document.getElementById('assCount'); if(el) el.textContent=`${n} commess${n===1?'a':'e'} selezionat${n===1?'a':'e'}`;
 }
-async function salvaAssegna(uid){
-  const u=utentiData.find(x=>x.id===uid);if(!u)return;
+async function salvaAssegna(email){
   const ids=[...document.querySelectorAll('#assCommList input:checked')].map(i=>i.value);
   const btn=document.getElementById('btnSalvaAss');
   btn.disabled=true;btn.textContent='⏳ Salvataggio...';
   try{
-    await gPatch(`/sites/${siteIdGdl}/lists/${utentiListId}/items/${uid}/fields`,{CantieriAssegnati:ids.join(',')});
-    u.cantieri=ids;
-    assSoloSel=false;
+    const fields={Title:email, CommesseExtra:ids.join(',')};
+    if(assegnazioniItem[email]){
+      await gPatch(`/sites/${siteIdPresenze}/lists/${assegnazioniListId}/items/${assegnazioniItem[email]}/fields`,fields);
+    } else {
+      const r=await gPost(`/sites/${siteIdPresenze}/lists/${assegnazioniListId}/items`,{fields});
+      if(r?.id) assegnazioniItem[email]=r.id;
+    }
+    commesseExtra[email]=ids;
     closeModal();
     toast('Assegnazioni salvate ✓','s');
     renderAssegnazioni();
@@ -822,7 +870,7 @@ async function loadRuolo(){
   if(!utentiListId){currentRole='operator';return;}
   try{
     const r=await gGet(`/sites/${siteIdGdl}/lists/${utentiListId}/items?$expand=fields&$top=500`);
-    utentiData=r.value.map(i=>({id:i.id,email:(i.fields.Title||'').toLowerCase(),nome:i.fields.Nome||'',ruolo:(i.fields.Ruolo||'operator').toLowerCase(),cantieri:parseCantieriAss(i.fields.CantieriAssegnati)}));
+    utentiData=r.value.map(i=>({id:i.id,email:(i.fields.Title||'').toLowerCase(),nome:i.fields.Nome||'',ruolo:(i.fields.Ruolo||'operator').toLowerCase(),cantieri:parseCantieriAss(i.fields.CantieriAssegnati),tipoLogin:(i.fields.TipoLogin||'').toLowerCase()}));
     const me=utentiData.find(u=>u.email===currentEmail);
     currentRole=me?me.ruolo:'operator';
     document.getElementById('userRoleBadge').textContent=currentRole;
@@ -1048,7 +1096,10 @@ function showSection(name){
   if(name==='calendario')renderCalendario();
   if(name==='team'){renderTeam();aggiornaDaSharePoint('team');}
   if(name==='commesse'){renderCommesse();aggiornaDaSharePoint('commesse');}
-  if(name==='assegnazioni')renderAssegnazioni();
+  if(name==='assegnazioni'){
+    renderAssegnazioni();
+    Promise.all([loadUtentiPres().catch(()=>{}),loadCommessePres().catch(()=>{}),loadAssegnazioni().catch(()=>{})]).then(renderAssegnazioni);
+  }
 }
 
 async function cambiaMe(d){
@@ -1507,7 +1558,7 @@ async function salvaPresenza(editId=null){
   if(!Number.isInteger(ore)||ore<1||ore>12){
     msgM.innerHTML='<div class="error">⚠️ Le ore devono essere un numero intero tra 1 e 12.</div>';return;
   }
-  const cantiere=cantieriData.find(c=>c.id===commId);
+  const cantiere=tutteLeCommesse().find(c=>c.id===commId);
   const fields={
     Title:data,DataPresenza:data,Ore:ore,TipoPresenza:tipo,
     CodiceCommessa:cod,UtenteEmail:currentEmail,UtenteName:currentUser.name||currentEmail,
@@ -1607,7 +1658,8 @@ function modificaPresenza(id){
     <button class="btn btn-secondary" onclick="closeModal()">Annulla</button>
     <button class="btn btn-success" onclick="salvaPresenza('${id}')" id="btnSalva">💾 Aggiorna</button>
   </div>`);
-  const c=cantieriData.find(x=>x.codComm===p.codiceCommessa);
+  const tutte=tutteLeCommesse();
+  const c=tutte.find(x=>x.codComm===p.codiceCommessa&&(!p.nomeCantiere||x.title===p.nomeCantiere))||tutte.find(x=>x.codComm===p.codiceCommessa);
   if(c){document.getElementById('pCommId').value=c.id;selComm(c.id,c.codComm,c.title);}
   else popolaComm('');
 }
@@ -2055,7 +2107,7 @@ async function commessaSalva(id){
   const attiva = document.getElementById('cAttiva').value==='true';
   const note   = document.getElementById('cNote').value.trim();
   if(!codice||!desc){showToast('Codice e descrizione obbligatori','warn');return;}
-  const fields={Title:desc,CodiceCommessa:codice,Descrizione:desc,Committente:comm,TipoCommessa:tipo,Attiva:attiva,Note:note,SincGDL:false};
+  const fields={Title:desc,CodiceCommessa:codice,Descrizione:desc,Committente:comm,Tipo:tipo,Attiva:attiva,Note:note,SincGDL:false};
   try{
     if(id){
       await gPatch(`/sites/${siteIdPresenze}/lists/${commesseListId}/items/${id}/fields`,fields);
