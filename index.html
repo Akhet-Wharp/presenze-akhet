@@ -285,6 +285,7 @@ textarea{min-height:80px;font-family:inherit;resize:vertical}
     <button class="btn btn-secondary small-btn" onclick="cambiaMe(1)">Succ ▶</button>
     <span id="msgGlobale" style="flex:1"></span>
   </div>
+  <div id="bannerMeseChiuso" class="info" style="display:none;margin-bottom:15px;background:#fdecea;border-left:4px solid #c0392b;color:#922b21"></div>
 
   <!-- ========== DASHBOARD ========== -->
   <div id="sec-dashboard" class="section active">
@@ -482,6 +483,8 @@ textarea{min-height:80px;font-family:inherit;resize:vertical}
         <button class="btn btn-primary small-btn" id="btnAdminAggiorna" onclick="aggiornaDaSharePoint('admin')">🔄 Aggiorna</button>
       </div>
       <button class="btn btn-primary small-btn" onclick="adminExportExcel()">⬇️ Esporta Excel</button>
+      <button class="btn btn-success small-btn" onclick="adminExportBuste()" id="btnBuste" title="Riepilogo mensile e un foglio per persona, come il file Buste">📋 Export Buste</button>
+      <span id="adminChiusura" style="align-self:center;display:inline-flex;gap:6px;align-items:center"></span>
       <span id="adminContatore" style="color:#666;font-size:13px;align-self:center"></span>
     </div>
 
@@ -568,7 +571,9 @@ let siteIdPresenze = null;  // Akhet-Presenze → Presenze
 let utentiPresListId  = null; // lista Utenti nel sito Presenze
 let commesseListId    = null; // lista Commesse nel sito Presenze
 let commesseData      = [];   // cache commesse
-let assegnazioniListId = null; // lista Assegnazioni nel sito Presenze (commesse aggiuntive per utente)
+let assegnazioniListId = null;
+let mesiChiusiListId = null;   // lista MesiChiusi: Titolo = "AAAA-MM" se il mese è chiuso
+let mesiChiusi = new Map();    // "AAAA-MM" -> {id, da, il} // lista Assegnazioni nel sito Presenze (commesse aggiuntive per utente)
 let commesseExtra      = {};   // email -> [id commesse locali]
 let assegnazioniItem   = {};   // email -> id elemento nella lista Assegnazioni
 let cantieriListId = null;
@@ -708,6 +713,7 @@ async function initApp(){
     try{ await loadAssegnazioni(); }catch(e){ console.warn('Assegnazioni non leggibili:',e.message); }
 
     lsSet('Caricamento dati…','Presenze',82);
+    try{ await loadMesiChiusi(); }catch(e){ console.warn('Mesi chiusi non leggibili:',e.message); }
     await loadPresenzeCache();
     loadPresenze();
 
@@ -753,6 +759,7 @@ async function loadListIds(){
     if(l.displayName==='Utenti')   utentiPresListId = l.id;
     if(l.displayName==='Commesse') commesseListId   = l.id;
     if(l.displayName==='Assegnazioni') assegnazioniListId = l.id;
+    if(l.displayName==='MesiChiusi') mesiChiusiListId = l.id;
   }
 }
 
@@ -945,7 +952,9 @@ const mappa=i=>({
   ore:parseFloat(i.fields.Ore||0),tipo:(i.fields.TipoPresenza||'ufficio').toLowerCase(),
   utenteEmail:(i.fields.UtenteEmail||'').toLowerCase(),utenteName:i.fields.UtenteName||'',
   codiceCommessa:i.fields.CodiceCommessa||'',
-  fonte:i.fields.Fonte||'manuale',modificabile:i.fields.Modificabile!==false&&(i.fields.Fonte||'').toLowerCase()!=='gdl',
+  fonte:i.fields.Fonte||'manuale',
+  modBase:i.fields.Modificabile!==false&&(i.fields.Fonte||'').toLowerCase()!=='gdl',
+  get modificabile(){ return this.modBase && !meseChiuso(this.data); },
   idGiornale:i.fields.IdGiornale||null,nomeCantiere:i.fields.NomeCantiere||'',
   descrizione:i.fields.DescrizioneAttivit_x00e0_||'',note:i.fields.Note||'',
 });
@@ -1094,6 +1103,58 @@ async function loadPresenzeCache(){
   presenzeCache = tutti;
 }
 
+// ================================================
+// CHIUSURA MESI (dopo l'invio al consulente del lavoro)
+// ================================================
+function meseChiuso(data){ return !!data && mesiChiusi.has(String(data).slice(0,7)); }
+async function loadMesiChiusi(){
+  mesiChiusi=new Map();
+  if(!mesiChiusiListId) return;
+  const r=await gGet(`/sites/${siteIdPresenze}/lists/${mesiChiusiListId}/items?$expand=fields($select=Title)&$select=id,createdBy,createdDateTime,fields&$top=999`);
+  (r.value||[]).forEach(i=>{
+    const t=String(i.fields?.Title||'').trim();
+    if(/^\d{4}-\d{2}$/.test(t)) mesiChiusi.set(t,{id:i.id,da:i.createdBy?.user?.displayName||'',il:i.createdDateTime||''});
+  });
+}
+function infoChiusura(mese){
+  const c=mesiChiusi.get(mese); if(!c) return '';
+  const il=c.il?new Date(c.il).toLocaleDateString('it-IT'):'';
+  return `🔒 Mese chiuso${il?' il '+il:''}${c.da?' da '+c.da:''}: le presenze non si possono più inserire, modificare o eliminare.`;
+}
+function aggiornaBannerMese(){
+  const el=document.getElementById('bannerMeseChiuso'); if(!el) return;
+  const mese=`${curAnno}-${String(curMese).padStart(2,'0')}`;
+  const t=infoChiusura(mese);
+  el.style.display=t?'':'none'; el.textContent=t;
+}
+async function chiudiMese(mese){
+  if(!mesiChiusiListId){ showToast('Manca la lista MesiChiusi sul sito Akhet-Presenze','error'); return; }
+  if(!confirm(`Chiudere ${mese}? Nessuno potrà più inserire, modificare o eliminare presenze di questo mese finché un amministratore non lo riapre.`)) return;
+  try{
+    await gPost(`/sites/${siteIdPresenze}/lists/${mesiChiusiListId}/items`,{fields:{Title:mese}});
+    await loadMesiChiusi(); adminAggiornaChiusura(); adminFiltra(); aggiornaBannerMese();
+    showToast(`🔒 ${mese} chiuso`);
+  }catch(e){ showToast('❌ '+e.message,'error'); }
+}
+async function riapriMese(mese){
+  const c=mesiChiusi.get(mese); if(!c) return;
+  if(!confirm(`Riaprire ${mese}? Le presenze di questo mese torneranno modificabili.`)) return;
+  try{
+    // non si cancella: si rinomina, così resta lo storico di chiusure e riaperture
+    await gPatch(`/sites/${siteIdPresenze}/lists/${mesiChiusiListId}/items/${c.id}/fields`,{Title:`${mese} riaperto ${new Date().toISOString().slice(0,16).replace('T',' ')}`});
+    await loadMesiChiusi(); adminAggiornaChiusura(); adminFiltra(); aggiornaBannerMese();
+    showToast(`🔓 ${mese} riaperto`);
+  }catch(e){ showToast('❌ '+e.message,'error'); }
+}
+function adminAggiornaChiusura(){
+  const box=document.getElementById('adminChiusura'); if(!box) return;
+  const mese=document.getElementById('adminFiltroMese')?.value||'';
+  if(currentRole!=='admin'||!mese){ box.innerHTML=''; return; }
+  box.innerHTML = mesiChiusi.has(mese)
+    ? `<span style="color:#c0392b;font-size:12px;font-weight:600">🔒 Chiuso</span> <button class="btn btn-secondary small-btn" onclick="riapriMese('${mese}')">🔓 Riapri mese</button>`
+    : `<button class="btn btn-warning small-btn" onclick="chiudiMese('${mese}')" title="Da fare dopo l'invio al consulente del lavoro">🔒 Chiudi mese</button>`;
+}
+
 // Filtra la cache per il mese corrente (istantaneo, nessuna chiamata API)
 function loadPresenze(){
   const meseStr=`${curAnno}-${String(curMese).padStart(2,'0')}`;
@@ -1102,6 +1163,7 @@ function loadPresenze(){
   const tutti=presenzeCache.filter(p=>p.data>=dal && p.data<=al);
   presenzeAll=tutti;
   presenzeData=currentRole==='operator'?tutti.filter(p=>p.utenteEmail===currentEmail):tutti;
+  aggiornaBannerMese();
 }
 
 // ================================================
@@ -1619,6 +1681,10 @@ async function salvaPresenza(editId=null){
 
   if(!data||!tipo||!ore||!commId){
     msgM.innerHTML='<div class="error">⚠️ Compila tutti i campi obbligatori (data, tipo, ore, commessa).</div>';return;
+  }
+  const orig=editId?presenzeCache.find(x=>x.id===editId):null;
+  if(meseChiuso(data)||(orig&&meseChiuso(orig.data))){
+    msgM.innerHTML=`<div class="error">${infoChiusura(String(meseChiuso(data)?data:orig.data).slice(0,7))}</div>`;return;
   }
   if(!Number.isInteger(ore)||ore<1||ore>12){
     msgM.innerHTML='<div class="error">⚠️ Le ore devono essere un numero intero tra 1 e 12.</div>';return;
@@ -2230,6 +2296,7 @@ async function adminCambiaMese(){
   adminCarica();
 }
 function adminCarica(){
+  adminAggiornaChiusura();
   const mese   = document.getElementById('adminFiltroMese').value;
   const utente = document.getElementById('adminFiltroUtente').value;
   document.getElementById('adminEmpty').style.display = 'none';
@@ -2310,7 +2377,7 @@ function adminRenderTabella(){
       <td><span style="font-size:11px;color:#888">${p.fonte||'manuale'}</span></td>
       <td style="white-space:nowrap">
         ${puoModif?`<button class="btn btn-secondary small-btn" onclick="adminModifica('${p.id}')">✏️</button>`:''}
-        ${isAdmT?`<button class="btn small-btn" style="background:#e74c3c;color:#fff" onclick="adminElimina('${p.id}','${p.data}','${(p.utenteName||'').replace(/'/g,'\'')}')">🗑️</button>`:''}
+        ${isAdmT&&!meseChiuso(p.data)?`<button class="btn small-btn" style="background:#e74c3c;color:#fff" onclick="adminElimina('${p.id}','${p.data}','${(p.utenteName||'').replace(/'/g,'\'')}')">🗑️</button>`:''}
       </td>
     </tr>`;
   }).join('');
@@ -2366,6 +2433,7 @@ async function adminModifica(id){
 }
 
 async function adminElimina(id, data, nome){
+  if(meseChiuso(data)){ showToast(infoChiusura(String(data).slice(0,7)),'error'); return; }
   if(!confirm(`Eliminare la presenza del ${data} di ${nome}?`)) return;
   try {
     await presElimina(id);
@@ -2374,6 +2442,182 @@ async function adminElimina(id, data, nome){
     showToast('🗑️ Presenza eliminata');
     adminCarica();
   } catch(e){ showToast('❌ Errore eliminazione: '+e.message,'error'); }
+}
+
+// === Export "Buste" (struttura AKHET_Buste) — generatore condiviso ===
+function costruisciBuste(ExcelJS, opt){
+  const {anno, mese, persone, logoB64} = opt;
+  const giorni = new Date(anno, mese, 0).getDate();
+  const DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const mm = String(mese).padStart(2,'0');
+  const meseTxt = `${mm}/${anno}`;
+  const col = n => { let s=''; n++; while(n>0){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=Math.floor((n-1)/26);} return s; }; // 0-based -> lettera
+  const C0 = 1, CTOT = C0+giorni;            // indici 0-based: B.. ultima giornata, poi Total
+  const L = i => col(i-1);           // indice colonna 1-based -> lettera
+  const pasqua = y => { const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),mo=Math.floor((h+l-7*m+114)/31),da=((h+l-7*m+114)%31)+1; return new Date(y,mo-1,da); };
+  const festivi = new Set(['01-01','01-06','04-25','05-01','06-02','08-15','11-01','12-08','12-25','12-26']);
+  const pe = pasqua(anno); const pm = new Date(pe); pm.setDate(pe.getDate()+1);
+  const isFest = d => { const dt=new Date(anno,mese-1,d); const k=`${String(mese).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    return festivi.has(k) || (dt.getMonth()===pm.getMonth()&&dt.getDate()===pm.getDate()) || dt.getDay()===0 || dt.getDay()===6; };
+  const lavorabili = [...Array(giorni)].map((_,i)=>i+1).filter(d=>!isFest(d)).length;
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Portale Presenze Akhet'; wb.calcProperties.fullCalcOnLoad = true;
+  const logo = logoB64 ? wb.addImage({base64: logoB64, extension:'jpeg'}) : null;
+  const FONT = 'Calibri';
+  const thin = {style:'thin', color:{argb:'FF808080'}}, med = {style:'medium', color:{argb:'FF000000'}};
+  const box = {top:thin,left:thin,bottom:thin,right:thin};
+  const F_CAT = {type:'pattern',pattern:'solid',fgColor:{argb:'FFD9E1F2'}};
+  const F_WE  = {type:'pattern',pattern:'solid',fgColor:{argb:'FFEDEDED'}};
+  const F_TOT = {type:'pattern',pattern:'solid',fgColor:{argb:'FFFFFF00'}};
+  const F_NOTE= {type:'pattern',pattern:'solid',fgColor:{argb:'FFFFF2CC'}};
+  const F_HEAD= {type:'pattern',pattern:'solid',fgColor:{argb:'FFF2F2F2'}};
+
+  function intestazione(ws, nomeStaff){
+    ws.getColumn(1).width = 44;
+    for(let i=0;i<giorni;i++) ws.getColumn(C0+i+1).width = 4.7;
+    ws.getColumn(CTOT+1).width = 7;
+    ws.mergeCells('A1:A5');
+    if(logo!==null) ws.addImage(logo, {tl:{col:0.6,row:0.15}, ext:{width:140,height:78}});
+    const t=(addr,v,b)=>{ const c=ws.getCell(addr); c.value=v; c.font={name:FONT,size:10,bold:!!b}; };
+    t('B1','COMPANY NAME:',true); t('J1','AKHET SRL',true);
+    if(nomeStaff){ t('B3','NAME OF THE STAFF MEMBER:'); t('J3',nomeStaff,true); }
+    t('B4','MESE:'); t('J4',meseTxt,true);
+    // righe 6-7: giorni
+    const r6=ws.getRow(6), r7=ws.getRow(7);
+    r6.getCell(1).value='Date'; r7.getCell(1).value='Day';
+    for(let d=1; d<=giorni; d++){
+      const c6=r6.getCell(C0+d), c7=r7.getCell(C0+d);
+      c6.value=d; c7.value=DOW[new Date(anno,mese-1,d).getDay()];
+      [c6,c7].forEach(c=>{ c.alignment={horizontal:'center'}; c.border=box; if(isFest(d)) c.fill=F_WE; });
+    }
+    r6.getCell(CTOT+1).value='Total';
+    [r6,r7].forEach(r=>{ r.font={name:FONT,size:10,bold:true}; r.getCell(1).border=box; r.getCell(CTOT+1).border=box; });
+    r7.font={name:FONT,size:10};
+  }
+  function rigaOre(ws, r, etichetta, valori, stile){
+    const row=ws.getRow(r); row.getCell(1).value=etichetta;
+    for(let d=1; d<=giorni; d++){
+      const c=row.getCell(C0+d); c.value = valori(d); c.border=box; c.alignment={horizontal:'center'};
+      if(stile==='cat') c.fill=F_CAT; else if(stile==='tot') c.fill=F_TOT; else if(isFest(d)) c.fill=F_WE;
+    }
+    const ct=row.getCell(CTOT+1); ct.value={formula:`SUM(${L(C0+1)}${r}:${L(CTOT)}${r})`}; ct.border=box; ct.alignment={horizontal:'center'};
+    row.getCell(1).border = stile ? {top:med,left:med,bottom:med,right:thin} : box;
+    row.font={name:FONT,size:10,bold:!!stile};
+    if(stile==='cat'){ row.getCell(1).fill=F_CAT; ct.fill=F_CAT; }
+    if(stile==='tot'){ row.getCell(1).fill=F_TOT; ct.fill=F_TOT; row.getCell(1).alignment={horizontal:'right'}; }
+    return row;
+  }
+
+  const CATS = [['1','100_Akhet'],['2','200_Scavi e restauro'],['3','300_Rilievi e GIS'],['4','400_Valorizzazione'],['5','500_Editoria']];
+  const ASSENZE = {ferie:['Ferie','FE'], malattia:['Malattia','MA'], permesso:['Permesso','PE']};
+  const nomiFoglio = new Set();
+  const nomeFoglio = n => { let b=(n||'SENZA NOME').toUpperCase().replace(/[\\\/\?\*\[\]:']/g,'').slice(0,28).trim()||'UTENTE'; let s=b,i=2; while(nomiFoglio.has(s)){ s=`${b} ${i++}`; } nomiFoglio.add(s); return s; };
+
+  // --- Riepilogo (primo foglio)
+  const rie = wb.addWorksheet(`Riepilogo ${mm}-${anno}`, {views:[{state:'frozen',xSplit:1,ySplit:7}]});
+  intestazione(rie, null);
+  const CNOTE = CTOT+2;
+  rie.getColumn(CNOTE).width = 48;
+  rie.getCell(6, CNOTE).value = "INDENNITA' TRASFERTA/NOTE"; rie.mergeCells(6,CNOTE,7,CNOTE);
+  const hn = rie.getCell(6,CNOTE); hn.font={name:FONT,size:10,bold:true}; hn.alignment={horizontal:'center',vertical:'middle',wrapText:true}; hn.fill=F_NOTE; hn.border=box;
+  rie.getCell('AJ1').value; // no-op
+  const cl = rie.getCell(2, CNOTE); cl.value=`Ore lavorabili nel mese: ${lavorabili*8} (${lavorabili} giorni × 8)`; cl.font={name:FONT,size:10,italic:true};
+  let rr = 8;
+
+  persone.forEach(p=>{
+    const sh = nomeFoglio(p.nome);
+    const ws = wb.addWorksheet(sh, {views:[{state:'frozen',xSplit:1,ySplit:7}], pageSetup:{orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,paperSize:9}});
+    intestazione(ws, p.nome);
+    // ore per giorno, per commessa e per assenza
+    const perComm = new Map(), perAss = {};
+    p.presenze.forEach(x=>{
+      const d = parseInt(String(x.data).slice(8,10),10); if(!d) return;
+      if(ASSENZE[x.tipo]){ perAss[x.tipo]=perAss[x.tipo]||{}; perAss[x.tipo][d]=(perAss[x.tipo][d]||0)+x.ore; return; }
+      const cod=(x.codiceCommessa||'').trim(), nome=(x.nomeCantiere||'').trim();
+      const k = cod+'|'+nome;
+      if(!perComm.has(k)) perComm.set(k,{cod,label:[cod,nome].filter(Boolean).join('_')||'(senza commessa)',ore:{}});
+      const o=perComm.get(k).ore; o[d]=(o[d]||0)+x.ore;
+    });
+    const comm=[...perComm.values()].sort((a,b)=>a.label.localeCompare(b.label,'it'));
+    const catDi = c => { const m=(c.cod||'').match(/^(\d)/); return m && CATS.some(([k])=>k===m[1]) ? m[1] : (c.cod==='ADMIN'?'1':'9'); };
+    let r=8; const righeCat=[];
+    const blocchi = CATS.concat(comm.some(c=>catDi(c)==='9')?[['9','900_Altro']]:[]);
+    blocchi.forEach(([k,lab])=>{
+      const figli = comm.filter(c=>catDi(c)===k);
+      const ass = k==='1' ? Object.keys(ASSENZE).filter(t=>perAss[t]) : [];
+      const rc=r; righeCat.push(rc); r++;
+      const prima=r;
+      ass.forEach(t=>{ rigaOre(ws, r, ASSENZE[t][0], d=>perAss[t][d]||0); r++; });
+      figli.forEach(c=>{ rigaOre(ws, r, c.label, d=>c.ore[d]||0); r++; });
+      const ultima=r-1;
+      rigaOre(ws, rc, lab, d=> ultima>=prima ? {formula:`SUM(${L(C0+d)}${prima}:${L(C0+d)}${ultima})`} : 0, 'cat');
+    });
+    r++;
+    const rTot=r;
+    rigaOre(ws, rTot, 'Total hours', d=>({formula: righeCat.map(x=>`${L(C0+d)}${x}`).join('+')}), 'tot');
+    // firme
+    const rf=rTot+3;
+    ws.mergeCells(rf,1,rf+4,1); ws.mergeCells(rf,3,rf+4,14);
+    const f1=ws.getCell(rf,1), f2=ws.getCell(rf,3);
+    f1.value='Date and signature of staff member'; f2.value='Date and signature of line manager/supervisor';
+    [f1,f2].forEach(c=>{ c.alignment={vertical:'top'}; c.border={top:thin,left:thin,bottom:thin,right:thin}; c.font={name:FONT,size:10}; });
+
+    // riga nel riepilogo
+    const ref = `'${sh.replace(/'/g,"''")}'`;
+    const rowP = rigaOre(rie, rr, p.nome, d=>({formula:`${ref}!${L(C0+d)}${rTot}`}));
+    rowP.font={name:FONT,size:10,bold:true}; rowP.getCell(1).border={top:med,left:med,bottom:thin,right:thin};
+    const rowA = rie.getRow(rr+1); rowA.getCell(1).value='Ferie/permessi'; rowA.font={name:FONT,size:10};
+    for(let d=1; d<=giorni; d++){
+      const cod = Object.keys(ASSENZE).filter(t=>perAss[t]&&perAss[t][d]).map(t=>{ const h=perAss[t][d]; return (h>=8?'':h+' ')+ASSENZE[t][1]; }).join(' ');
+      const c=rowA.getCell(C0+d); c.value=cod||null; c.border=box; c.alignment={horizontal:'center',wrapText:true}; c.font={name:FONT,size:9,bold:true,color:{argb:'FFC00000'}};
+      if(isFest(d)) c.fill=F_WE;
+    }
+    rowA.getCell(1).border={top:thin,left:med,bottom:med,right:thin}; rowA.getCell(CTOT+1).border=box;
+    rie.mergeCells(rr,CNOTE,rr+1,CNOTE);
+    const cn=rie.getCell(rr,CNOTE); cn.fill=F_NOTE; cn.border=box; cn.alignment={wrapText:true,vertical:'middle',horizontal:'center'}; cn.font={name:FONT,size:10,bold:true,color:{argb:'FFFF0000'}};
+    rr += 3;
+  });
+  rie.pageSetup = {orientation:'landscape',fitToPage:true,fitToWidth:1,fitToHeight:0,paperSize:9};
+  return wb;
+}
+
+
+const LOGO_AKHET_B64 = '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';
+function caricaExcelJS(){
+  if(window.ExcelJS) return Promise.resolve(window.ExcelJS);
+  return new Promise((ok,ko)=>{
+    const sc=document.createElement('script');
+    sc.src='https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
+    sc.onload=()=>ok(window.ExcelJS); sc.onerror=()=>ko(new Error('Libreria Excel non caricata'));
+    document.head.appendChild(sc);
+  });
+}
+async function adminExportBuste(){
+  const v=document.getElementById('adminFiltroMese').value;
+  if(!v){ showToast('Scegli un mese','warn'); return; }
+  if(!adminFiltrate.length){ showToast('Nessun dato da esportare','warn'); return; }
+  const [anno,mese]=v.split('-').map(Number);
+  const btn=document.getElementById('btnBuste'); btn.disabled=true; btn.textContent='⏳ Preparazione...';
+  try{
+    const ExcelJS=await caricaExcelJS();
+    const gruppi=new Map();
+    adminFiltrate.forEach(p=>{
+      const k=chiavePersona(p);
+      if(!gruppi.has(k)) gruppi.set(k,{nome:p.utenteName||p.utenteEmail||'Senza nome',presenze:[]});
+      gruppi.get(k).presenze.push(p);
+    });
+    const persone=[...gruppi.values()].sort((a,b)=>a.nome.localeCompare(b.nome,'it',{sensitivity:'base'}));
+    const wb=costruisciBuste(ExcelJS,{anno,mese,persone,logoB64:LOGO_AKHET_B64});
+    const buf=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+    a.download=`AKHET_Buste_${String(mese).padStart(2,'0')}_${anno}.xlsx`; a.click(); URL.revokeObjectURL(a.href);
+    showToast('⬇️ File Buste scaricato');
+    const meseK=`${anno}-${String(mese).padStart(2,'0')}`;
+    if(currentRole==='admin'&&!mesiChiusi.has(meseK)&&confirm(`File scaricato. Vuoi chiudere ${meseK} ora, così le ore non cambiano più?`)) await chiudiMese(meseK);
+  }catch(e){ showToast('❌ '+e.message,'error'); }
+  finally{ btn.disabled=false; btn.textContent='📋 Export Buste'; }
 }
 
 function adminExportExcel(){
