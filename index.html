@@ -914,7 +914,7 @@ async function loadRuolo(){
   if(!utentiListId){currentRole='operator';return;}
   try{
     const r=await gGet(`/sites/${siteIdGdl}/lists/${utentiListId}/items?$expand=fields&$top=500`);
-    utentiData=r.value.map(i=>({id:i.id,email:(i.fields.Title||'').toLowerCase(),nome:i.fields.Nome||'',ruolo:(i.fields.Ruolo||'operator').toLowerCase(),cantieri:parseCantieriAss(i.fields.CantieriAssegnati),tipoLogin:(i.fields.TipoLogin||'').toLowerCase()}));
+    utentiData=r.value.map(i=>({id:i.id,email:(i.fields.Title||'').toLowerCase(),nome:i.fields.Nome||'',ruolo:(String(i.fields.RuoloPresenze||'').trim()||i.fields.Ruolo||'operator').toLowerCase(),ruoloGdl:(i.fields.Ruolo||'operator').toLowerCase(),ruoloPres:String(i.fields.RuoloPresenze||'').trim().toLowerCase(),cantieri:parseCantieriAss(i.fields.CantieriAssegnati),tipoLogin:(i.fields.TipoLogin||'').toLowerCase()}));
     const me=utentiData.find(u=>u.email===currentEmail);
     currentRole=me?me.ruolo:'operator';
     document.getElementById('userRoleBadge').textContent=currentRole;
@@ -1793,7 +1793,7 @@ function renderUtenti(){
   const emailGdl = new Set(utentiData.map(u=>u.email));
   const gdl = utentiData.map(u=>({
     id:'gdl:'+u.id, nome:u.nome, email:u.email,
-    ruolo:u.ruolo||'operator', attivo:true, note:'', sincGdl:true
+    ruolo:u.ruolo||'operator', ruoloGdl:u.ruoloGdl||'operator', attivo:true, note:'', sincGdl:true
   }));
   const extra = utentiPresData.filter(u=>!emailGdl.has(u.email));
   const tutti = [...gdl, ...extra];
@@ -1807,7 +1807,7 @@ function renderUtenti(){
     <tr style="${!u.attivo?'opacity:0.5':''}">
       <td><strong>${esc(u.nome)}</strong></td>
       <td style="font-size:12px">${u.email}</td>
-      <td><span style="background:${RUOLO_COL[u.ruolo]||'#95a5a6'};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px">${u.ruolo}</span></td>
+      <td><span style="background:${RUOLO_COL[u.ruolo]||'#95a5a6'};color:#fff;padding:2px 8px;border-radius:10px;font-size:11px">${u.ruolo}</span>${u.sincGdl&&u.ruoloGdl&&u.ruoloGdl!==u.ruolo?`<br><small style="color:#888">nel GDL: ${esc(u.ruoloGdl)}</small>`:''}</td>
       <td>${u.attivo?'<span style="color:#27ae60">✅ Attivo</span>':'<span style="color:#e74c3c">❌ Disattivo</span>'}</td>
       <td>${u.sincGdl?'<span title="Sincronizzato dal GDL" style="color:#3498db">🔗 GDL</span>':'<span style="color:#888">✏️ Locale</span>'}</td>
       <td style="white-space:nowrap">
@@ -1840,7 +1840,7 @@ function utenteModale(id){
           <div style="width:48px;height:48px;border-radius:50%;background:#3498db;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0">👤</div>
           <div>
             <h3 style="margin:0;font-size:18px;color:#2c3e50">${isNew?'Nuovo utente':'Modifica utente'}</h3>
-            <p style="margin:4px 0 0;font-size:12px;color:#888">${isNew?'Aggiungi un utente non presente nel GDL':isGdl?'Utente del GDL: le modifiche valgono anche nel Giornale dei lavori':'Modifica i dati dell&#39;utente'}</p>
+            <p style="margin:4px 0 0;font-size:12px;color:#888">${isNew?'Aggiungi un utente non presente nel GDL':isGdl?'Utente del GDL: il ruolo scelto qui vale solo nel portale presenze; il nome vale anche nel GDL':'Modifica i dati dell&#39;utente'}</p>
           </div>
         </div>
         <button onclick="closeModal()" style="background:none;border:none;font-size:22px;cursor:pointer;color:#999;padding:4px 8px;border-radius:6px;line-height:1" title="Chiudi">✕</button>
@@ -1936,9 +1936,9 @@ async function utenteSalva(id){
     const gid = String(id).slice(4);
     try{
       await gPatch(`/sites/${siteIdGdl}/lists/${utentiListId}/items/${gid}/fields`,
-        {Nome:nome, Ruolo:ruolo.charAt(0).toUpperCase()+ruolo.slice(1)});
+        {Nome:nome, RuoloPresenze:ruolo.charAt(0).toUpperCase()+ruolo.slice(1)});
       const g = utentiData.find(x=>x.id===gid);
-      if(g){ g.nome=nome; g.ruolo=ruolo; }
+      if(g){ g.nome=nome; g.ruolo=ruolo; g.ruoloPres=ruolo; }
       showToast('✅ Utente aggiornato'+(email===currentEmail?' — esci e rientra per applicare il nuovo ruolo':''));
       closeModal(); renderUtenti();
     }catch(e){
