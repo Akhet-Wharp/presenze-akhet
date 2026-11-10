@@ -917,6 +917,14 @@ async function loadRuolo(){
     utentiData=r.value.map(i=>({id:i.id,email:(i.fields.Title||'').toLowerCase(),nome:i.fields.Nome||'',ruolo:(String(i.fields.RuoloPresenze||'').trim()||i.fields.Ruolo||'operator').toLowerCase(),ruoloGdl:(i.fields.Ruolo||'operator').toLowerCase(),ruoloPres:String(i.fields.RuoloPresenze||'').trim().toLowerCase(),cantieri:parseCantieriAss(i.fields.CantieriAssegnati),tipoLogin:(i.fields.TipoLogin||'').toLowerCase()}));
     const me=utentiData.find(u=>u.email===currentEmail);
     currentRole=me?me.ruolo:'operator';
+    // Chi non è nel GDL: il ruolo sta nella lista Utenti del portale (leggibile solo da supervisor/admin)
+    if(!me&&utentiPresListId){
+      try{
+        await loadUtentiPres();
+        const mp=utentiPresData.find(u=>u.email===currentEmail&&u.attivo);
+        if(mp) currentRole=mp.ruolo||'operator';
+      }catch(_){ /* lista non leggibile = operatore */ }
+    }
     document.getElementById('userRoleBadge').textContent=currentRole;
     document.getElementById('userRoleBadge').className='badge'+(currentRole==='admin'?' warn':currentRole==='supervisor'?' ':' gray');
   }catch(e){console.warn('Errore ruolo:',e);currentRole='operator';}
