@@ -447,7 +447,7 @@ textarea{min-height:80px;font-family:inherit;resize:vertical}
       </div>
       <div>
         <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Mese</label>
-        <input type="month" id="adminFiltroMese" onchange="adminCarica()" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
+        <input type="month" id="adminFiltroMese" onchange="adminCambiaMese()" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:13px">
       </div>
       <div>
         <label style="font-size:12px;color:#666;display:block;margin-bottom:4px">Tipo</label>
@@ -990,9 +990,20 @@ async function spFetch(path, opts={}){
   return r.status===204 ? null : (r.headers.get('content-type')||'').includes('json') ? r.json() : null;
 }
 
+// Admin e supervisor caricano solo dall'anno precedente in poi (filtro sulla colonna indicizzata
+// DataPresenza): lo storico più vecchio si carica solo quando si sceglie un mese di quegli anni.
+let annoMinCaricato = new Date().getFullYear()-1;
+async function assicuraAnno(anno){
+  if(usaApiSharePoint() && anno && anno<annoMinCaricato){
+    annoMinCaricato=anno;
+    showMsg(`Caricamento presenze dal ${anno}...`,'info');
+    await loadPresenzeCache();
+  }
+}
 async function loadPresenzeCacheSP(){
   const sel = 'Id,Title,DataPresenza,Ore,TipoPresenza,CodiceCommessa,UtenteEmail,UtenteName,Fonte,Modificabile,IdGiornale,NomeCantiere,DescrizioneAttivit_x00e0_,Note';
-  let url = `/web/lists(guid'${presenzeListId}')/items?$select=${sel}&$top=5000`;
+  const dal = `${annoMinCaricato-1}-12-31T00:00:00Z`; // margine di un giorno per il fuso orario
+  let url = `/web/lists(guid'${presenzeListId}')/items?$select=${sel}&$filter=${encodeURIComponent(`DataPresenza ge datetime'${dal}'`)}&$top=5000`;
   let tutti = [];
   while(url){
     const d = await spFetch(url);
@@ -1160,6 +1171,7 @@ async function cambiaMe(d){
   if(curMese<1){curMese=12;curAnno--;}
   aggiornaHeader();
   showMsg('Aggiornamento...','info');
+  await assicuraAnno(curAnno);
   loadPresenze();
   const att=document.querySelector('.section.active')?.id?.replace('sec-','')||'dashboard';
   showSection(att);
@@ -2212,6 +2224,11 @@ async function commessaElimina(id,codice){
 let adminPresenze = [];   // tutte le presenze caricate
 let adminFiltrate = [];   // dopo filtro tipo
 
+async function adminCambiaMese(){
+  const v=document.getElementById('adminFiltroMese').value;
+  await assicuraAnno(parseInt((v||'').slice(0,4),10));
+  adminCarica();
+}
 function adminCarica(){
   const mese   = document.getElementById('adminFiltroMese').value;
   const utente = document.getElementById('adminFiltroUtente').value;
