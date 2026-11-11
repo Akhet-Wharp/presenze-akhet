@@ -483,6 +483,7 @@ textarea{min-height:80px;font-family:inherit;resize:vertical}
         <button class="btn btn-primary small-btn" id="btnAdminAggiorna" onclick="aggiornaDaSharePoint('admin')">🔄 Aggiorna</button>
       </div>
       <button class="btn btn-primary small-btn" onclick="adminExportExcel()">⬇️ Esporta Excel</button>
+      <button class="btn btn-secondary small-btn" onclick="adminImportaStorico()" id="btnImportStorico" style="display:none" title="Importa le presenze dal file di importazione dello storico">📥 Importa storico</button>
       <button class="btn btn-success small-btn" onclick="adminExportBuste()" id="btnBuste" title="Riepilogo mensile e un foglio per persona, come il file Buste">📋 Export Buste</button>
       <span id="adminChiusura" style="align-self:center;display:inline-flex;gap:6px;align-items:center"></span>
       <span id="adminContatore" style="color:#666;font-size:13px;align-self:center"></span>
@@ -2110,8 +2111,10 @@ function renderCommesse(){
     id:null, codice:c.codComm||'', descrizione:c.title||'', gdlRow:true,
     committente:'', tipo:'cantiere', attiva:true, sincGdl:true, note:''
   }));
-  // Aggiunge solo le commesse locali che NON esistono già nel GDL
-  const extra = commesseData.filter(c=>!codiciGdl.has(c.codice));
+  // Aggiunge le commesse del portale, salvo quelle identiche (stesso codice E stesso nome) a un cantiere GDL:
+  // lo stesso codice commessa può avere più cantieri/attività con nomi diversi
+  const chiaviGdl = new Set(cantieriData.map(c=>(c.codComm||'')+'|'+normNome(c.title)));
+  const extra = commesseData.filter(c=>!chiaviGdl.has((c.codice||'')+'|'+normNome(c.descrizione)));
   const lista = [...gdl, ...extra];
 
   const filtered = lista.filter(c=>
@@ -2134,7 +2137,7 @@ function renderCommesse(){
   cantieriData.forEach(c=>{const k=c.codComm||'';nPerCodice[k]=(nPerCodice[k]||0)+1;});
   const oreRiga=c=>c.gdlRow
     ? (oreKey[c.codice+'|'+c.descrizione]||0)+(nPerCodice[c.codice]===1?(oreSenzaNome[c.codice]||0):0)
-    : (oreComm[c.codice]||0);
+    : (oreKey[c.codice+'|'+c.descrizione]||0);
 
   const TIPO_COL={cantiere:'#27ae60',ufficio:'#2980b9',amministrazione:'#8e44ad',formazione:'#f39c12',altro:'#95a5a6'};
   document.getElementById('commTbody').innerHTML = filtered.map(c=>`
@@ -2297,6 +2300,7 @@ async function adminCambiaMese(){
 }
 function adminCarica(){
   adminAggiornaChiusura();
+  const bi=document.getElementById('btnImportStorico'); if(bi) bi.style.display=currentRole==='admin'?'':'none';
   const mese   = document.getElementById('adminFiltroMese').value;
   const utente = document.getElementById('adminFiltroUtente').value;
   document.getElementById('adminEmpty').style.display = 'none';
@@ -2618,6 +2622,94 @@ async function adminExportBuste(){
     if(currentRole==='admin'&&!mesiChiusi.has(meseK)&&confirm(`File scaricato. Vuoi chiudere ${meseK} ora, così le ore non cambiano più?`)) await chiudiMese(meseK);
   }catch(e){ showToast('❌ '+e.message,'error'); }
   finally{ btn.disabled=false; btn.textContent='📋 Export Buste'; }
+}
+
+// ================================================
+// IMPORTAZIONE STORICO (file "Import_storico_presenze": foglio Presenze)
+// ================================================
+let impRighe=[], impPiano=null;
+function normNome(x){ return String(x||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim(); }
+function emailDaNome(nome){
+  const n=normNome(nome), inv=n.split(' ').reverse().join(' ');
+  const tutti=[...utentiData.map(u=>({nome:u.nome,email:u.email})),...(utentiPresData||[]).map(u=>({nome:u.nome,email:u.email}))];
+  const u=tutti.find(x=>{ const k=normNome(x.nome); return k&&(k===n||k===inv); });
+  return u?.email||'';
+}
+function adminImportaStorico(){
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.xlsx';
+  inp.onchange=async()=>{
+    const f=inp.files[0]; if(!f) return;
+    try{
+      const ExcelJS=await caricaExcelJS();
+      const wb=new ExcelJS.Workbook(); await wb.xlsx.load(await f.arrayBuffer());
+      const ws=wb.getWorksheet('Presenze'); if(!ws) throw new Error('Nel file manca il foglio "Presenze"');
+      const head=[]; ws.getRow(1).eachCell((c,i)=>head[i]=String(c.value||'').trim());
+      const idx=n=>head.indexOf(n);
+      const need=['Data','Persona','Ore','TipoPresenza','CodiceCommessa','NomeCantiere','Note'];
+      need.forEach(n=>{ if(idx(n)<0) throw new Error('Colonna mancante: '+n); });
+      impRighe=[];
+      ws.eachRow((row,r)=>{ if(r===1) return;
+        const v=n=>{ const x=row.getCell(idx(n)).value; return x&&typeof x==='object'&&x.result!==undefined?x.result:x; };
+        let data=v('Data'); if(data instanceof Date) data=data.toISOString().slice(0,10); data=String(data||'').slice(0,10);
+        const ore=parseFloat(v('Ore')); if(!/^\d{4}-\d{2}-\d{2}$/.test(data)||!ore) return;
+        impRighe.push({data,persona:String(v('Persona')||'').trim(),ore,tipo:String(v('TipoPresenza')||'ufficio').toLowerCase(),
+          cod:String(v('CodiceCommessa')||''),nome:String(v('NomeCantiere')||''),note:String(v('Note')||'')});
+      });
+      try{ await loadUtentiPres(); }catch(_){}
+      await assicuraAnno(Math.min(...impRighe.map(x=>parseInt(x.data.slice(0,4)))));
+      mostraPianoImport();
+    }catch(e){ showToast('❌ '+e.message,'error'); }
+  };
+  inp.click();
+}
+function mostraPianoImport(){
+  const mesi=new Map();
+  impRighe.forEach(x=>{ const m=x.data.slice(0,7); if(!mesi.has(m)) mesi.set(m,{righe:0,ore:0}); const o=mesi.get(m); o.righe++; o.ore+=x.ore; });
+  const presenti=new Set(presenzeCache.map(p=>String(p.data).slice(0,7)));
+  const piano=[...mesi.entries()].sort().map(([m,o])=>({mese:m,...o,stato: mesiChiusi.has(m)?'chiuso':presenti.has(m)?'presente':'importa'}));
+  const persone=[...new Set(impRighe.map(x=>x.persona))].sort();
+  const senza=persone.filter(p=>!emailDaNome(p));
+  impPiano=piano;
+  const lbl={importa:'<span style="color:#27ae60;font-weight:600">✅ Da importare</span>',presente:'<span style="color:#e67e22">⏭️ Saltato: dati già presenti</span>',chiuso:'<span style="color:#c0392b">🔒 Saltato: mese chiuso</span>'};
+  const daImp=piano.filter(x=>x.stato==='importa');
+  openModal(`
+  <div class="modal-header"><h3>📥 Importazione storico</h3><button class="modal-close" onclick="closeModal()">✕</button></div>
+  <div class="modal-body" style="text-align:left">
+    <div id="msgModal"></div>
+    <table class="pres-table" style="margin-bottom:12px"><thead><tr><th>Mese</th><th>Righe</th><th>Ore</th><th>Esito</th></tr></thead><tbody>
+      ${piano.map(x=>`<tr><td>${x.mese}</td><td>${x.righe}</td><td>${Math.round(x.ore)}</td><td>${lbl[x.stato]}</td></tr>`).join('')}
+    </tbody></table>
+    <div style="font-size:13px;margin-bottom:8px"><strong>${persone.length}</strong> persone nel file${senza.length?`; <strong style="color:#e67e22">${senza.length} senza account</strong> (importate con il solo nome, visibili agli admin): ${senza.map(esc).join(', ')}`:''}.</div>
+    <div class="info" style="font-size:12px">Le presenze vengono create con fonte "storico" (o "manuale" se la colonna Fonte non lo accetta). Al termine rilancia il flusso "Riassegna autori presenze", così ognuno vede le proprie.</div>
+    <div id="impProgress" style="margin-top:10px;font-size:13px"></div>
+  </div>
+  <div class="modal-footer">
+    <button class="btn btn-secondary" onclick="closeModal()">Annulla</button>
+    <button class="btn btn-success" id="btnAvviaImport" onclick="avviaImport()" ${daImp.length?'':'disabled'}>📥 Importa ${daImp.reduce((a,x)=>a+x.righe,0)} presenze</button>
+  </div>`);
+}
+async function avviaImport(){
+  const mesiOk=new Set(impPiano.filter(x=>x.stato==='importa').map(x=>x.mese));
+  const righe=impRighe.filter(x=>mesiOk.has(x.data.slice(0,7)));
+  const btn=document.getElementById('btnAvviaImport'); btn.disabled=true;
+  const prog=document.getElementById('impProgress');
+  let fonte='storico', fatte=0, errori=[];
+  const crea=async x=>{
+    const fields={Title:x.data,DataPresenza:x.data,Ore:x.ore,TipoPresenza:x.tipo,CodiceCommessa:x.cod,NomeCantiere:x.nome,
+      UtenteEmail:emailDaNome(x.persona),UtenteName:x.persona,Fonte:fonte,Modificabile:true,Note:x.note};
+    await spFetch(`/web/lists(guid'${presenzeListId}')/items`,{method:'POST',body:JSON.stringify(fields)});
+  };
+  // prova sulla prima riga: se la scelta "storico" non è ammessa nella colonna Fonte, si usa "manuale"
+  try{ await crea(righe[0]); fatte=1; }
+  catch(e){ if(/fonte/i.test(e.message)){ fonte='manuale'; try{ await crea(righe[0]); fatte=1; }catch(e2){ errori.push(e2.message); } } else errori.push(e.message); }
+  if(!fatte){ prog.innerHTML=`<div class="error">❌ ${esc(errori[0]||'Errore')}</div>`; btn.disabled=false; return; }
+  let i=1; const N=righe.length;
+  const lavoratore=async()=>{ while(i<N){ const x=righe[i++]; try{ await crea(x); fatte++; }catch(e){ errori.push(`${x.data} ${x.persona}: ${e.message}`); }
+    prog.textContent=`Importate ${fatte} di ${N}${errori.length?` · errori: ${errori.length}`:''}…`; } };
+  await Promise.all([1,2,3,4,5].map(lavoratore));
+  prog.innerHTML=`<div class="${errori.length?'error':'success'}">${errori.length?'⚠️':'✅'} Importate ${fatte} presenze su ${N}${errori.length?`; ${errori.length} errori (primo: ${esc(errori[0])})`:''}.</div>`;
+  await loadPresenzeCache(); loadPresenze(); adminCarica();
+  btn.textContent='Fatto';
 }
 
 function adminExportExcel(){
